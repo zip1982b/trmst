@@ -85,8 +85,11 @@
 #define NACK_VAL                           0x1              /*!< I2C nack value */
 
 
-#define CMD_DRST 0xF0;
-
+#define CONFIG_APU 0x01
+#define CMD_DRST 0xF0	//command 'device reset'
+#define CMD_WCFG 0xD2	//Command 'Write Configuration'
+#define TRUE 1
+#define FALSE 0
 
 // DS2482 state
 unsigned char I2C_address;
@@ -148,6 +151,183 @@ static void ENC(void* arg)
 
 
 
+//--------------------------------------------------------------------------
+// Perform a device reset on the DS2482
+//
+// Returns: TRUE if device was reset
+//          FALSE device not detected or failure to perform reset
+//
+static int DS2482_reset()
+{
+    // Device Reset
+	// S - start
+	// AD,0 - select DS2482 for Write Access
+	// [A] - Acknowledged
+	// DRST - Command 'Device Reset', F0h
+	// [A] - Acknowledged
+	// S - start
+	// AD,1 - select DS2482 for Read Access
+	// [A] - Acknowledged
+	// [SS] - SS status byte to read to verify state
+	// 	A\ - not Acknowledged
+	// P - STOP Condition
+	
+    //   S AD,0 [A] DRST [A] Sr AD,1 [A] [SS] A\ P
+    //  [] indicates from slave
+    //  SS status byte to read to verify state
+	
+	uint8_t status;
+	
+	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+	i2c_master_start(cmd); // S - start
+	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
+	i2c_master_write_byte(cmd, CMD_DRST, ACK_CHECK_EN); //DRST - [Acknowledged]
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+	
+	switch(ret){
+			case ESP_OK:
+				printf("[DS2482_reset()] - CMD_DRST = OK \n");
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[DS2482_reset()] - Parameter error \n");
+				return FALSE;
+			case ESP_FAIL:
+				printf("[DS2482_reset()] - Sending command error, slave doesn't ACK the transfer \n");
+				return FALSE;
+			case ESP_ERR_INVALID_STATE:
+				printf("[DS2482_reset()] - I2C driver not installed or not in master mode \n");
+				return FALSE;
+			case ESP_ERR_TIMEOUT:
+				printf("[DS2482_reset()] - Operation timeout because the bus is busy \n");
+				return FALSE;
+			default:
+				printf( "hmmmmmmmmmmmmmmm\n" );
+				return FALSE;
+		}
+		//vTaskDelay(30 / portTICK_RATE_MS);
+		cmd = i2c_cmd_link_create();
+		i2c_master_start(cmd);// S - start
+		i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN);//AD,1 - [Acknowledged]
+		i2c_master_read_byte(cmd, &status, NACK_VAL); //[SS] notAcknowledged
+		//printf("ds2482-100 status = %d\n", status);
+		i2c_master_stop(cmd);
+		ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+		i2c_cmd_link_delete(cmd);
+		switch(ret){
+			case ESP_OK:
+				printf("[DS2482_reset()] - status = %d\n", status);
+				// check for failure due to incorrect read back of status
+				return ((status & 0xF7) == 0x10); //return TRUE;
+			case ESP_ERR_INVALID_ARG:
+				printf("[DS2482_reset()] - Parameter error \n");
+				return FALSE;
+			case ESP_FAIL:
+				printf("[DS2482_reset()] - Sending command error, slave doesn't ACK the transfer \n");
+				return FALSE;
+			case ESP_ERR_INVALID_STATE:
+				printf("[DS2482_reset()] - I2C driver not installed or not in master mode \n");
+				return FALSE;
+			case ESP_ERR_TIMEOUT:
+				printf("[DS2482_reset()] - Operation timeout because the bus is busy \n");
+				return FALSE;
+			default:
+				printf( "hmmmmmmmmmmmmmmm\n" );
+				return FALSE;
+		}
+}
+
+
+//--------------------------------------------------------------------------
+// Write the configuration register in the DS2482. The configuration
+// options are provided in the lower nibble of the provided config byte.
+// The uppper nibble in bitwise inverted when written to the DS2482.
+//
+// Returns:  TRUE: config written and response correct
+//           FALSE: response incorrect
+//
+static int DS2482_write_config(uint8_t config)
+{
+   // Write configuration (Case A)
+   //   S AD,0 [A] WCFG [A] CF [A] Sr AD,1 [A] [CF] A\ P
+   //  [] indicates from slave
+   //  CF configuration byte to write
+   
+   uint8_t read_config;
+   uint8_t tmp;
+   uint8_t reg_config;
+   tmp = config;
+   reg_config = config | (~tmp << 4);
+   printf("reg_config = %d\n", reg_config);
+   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+   i2c_master_start(cmd); // S - start
+   i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
+   i2c_master_write_byte(cmd, CMD_WCFG, ACK_CHECK_EN); //WCFG - [Acknowledged]
+   i2c_master_write_byte(cmd, reg_config, ACK_CHECK_EN); //WCFG - [Acknowledged]
+   i2c_master_stop(cmd);
+   esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+   i2c_cmd_link_delete(cmd);
+   switch(ret){
+			case ESP_OK:
+				printf("[DS2482_write_config()] - CMD_WCFG = OK\n");
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[DS2482_write_config()] - CMD_WCFG Parameter error \n");
+				return FALSE;
+			case ESP_FAIL:
+				printf("[DS2482_write_config()] - CMD_WCFG Sending command error, slave doesn't ACK the transfer \n");
+				return FALSE;
+			case ESP_ERR_INVALID_STATE:
+				printf("[DS2482_write_config()] - CMD_WCFG I2C driver not installed or not in master mode \n");
+				return FALSE;
+			case ESP_ERR_TIMEOUT:
+				printf("[DS2482_write_config()] - CMD_WCFG Operation timeout because the bus is busy \n");
+				return FALSE;
+			default:
+				printf( "CMD_WCFG hmmmmmmmmmmmmmmm\n" );
+				return FALSE;
+		}
+	//vTaskDelay(30 / portTICK_RATE_MS);
+	cmd = i2c_cmd_link_create();
+	i2c_master_start(cmd);// S - start
+	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
+	i2c_master_read_byte(cmd, &read_config, NACK_VAL); //[SS] notAcknowledged
+	
+	i2c_master_stop(cmd);
+	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	i2c_cmd_link_delete(cmd);
+	switch(ret){
+			case ESP_OK:
+				printf("read_config = %d\n", read_config);
+				printf("[DS2482_write_config()] - CMD_WCFG = OK\n");
+				return TRUE;
+			case ESP_ERR_INVALID_ARG:
+				printf("[DS2482_write_config()] - CMD_WCFG Parameter error \n");
+				return FALSE;
+			case ESP_FAIL:
+				printf("[DS2482_write_config()] - CMD_WCFG Sending command error, slave doesn't ACK the transfer \n");
+				return FALSE;
+			case ESP_ERR_INVALID_STATE:
+				printf("[DS2482_write_config()] - CMD_WCFG I2C driver not installed or not in master mode \n");
+				return FALSE;
+			case ESP_ERR_TIMEOUT:
+				printf("[DS2482_write_config()] - CMD_WCFG Operation timeout because the bus is busy \n");
+				return FALSE;
+			default:
+				printf( "CMD_WCFG hmmmmmmmmmmmmmmm\n" );
+				return FALSE;
+		}
+}
+
+
+
+
+
+
+
+
+
 
 
 
@@ -164,16 +344,15 @@ static void ENC(void* arg)
 //
 int DS2482_detect()
 {
-	DS2482_reset();
-	if(ret == ESP_ERR_TIMEOUT) {
-            printf("I2C timeout\n");
-        } else if(ret == ESP_OK) {
-            printf("reset_OK\n");
-   // reset the DS2482 ON selected address
    if (!DS2482_reset())
    {
-	   printf("ds2482-100 not detected");
-	   return FALSE;
+	   printf("[DS2482_detect()] - ds2482-100 not detected or failure to perform reset\n");
+	   return FALSE; // выход из функции
+   }
+   else
+   {
+	   printf("[DS2482_detect()] - ds2482-100 was reset\n");
+	   //return TRUE; // выход из функции
    }
 
    // default configuration
@@ -185,197 +364,18 @@ int DS2482_detect()
    // write the default configuration setup
    if (!DS2482_write_config(c1WS | cSPU | cPPM | cAPU))
    {
-	   printf("ds2482-100 failure to write configuration byte");
+	   printf("[DS2482_detect()] - ds2482-100 failure to write configuration byte\n");
 	   return FALSE;
    }
-     
-   printf("ds2482-100 was detected and written");
-   return TRUE;
-}
-
-
-//--------------------------------------------------------------------------
-// Perform a device reset on the DS2482
-//
-// Returns: TRUE if device was reset
-//          FALSE device not detected or failure to perform reset
-//
-static esp_err_t DS2482_reset()
-{
-    unsigned char status;
-
-    // Device Reset
-    //   S AD,0 [A] DRST [A] Sr AD,1 [A] [SS] A\ P
-    //  [] indicates from slave
-    //  SS status byte to read to verify state
-	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-	i2c_master_start(cmd);
-	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
-	i2c_master_write_byte(cmd, CMD_DRST, ACK_CHECK_EN);
-    i2c_master_stop(cmd);
-    
-	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
-	i2c_master_read_byte(cmd, status, NACK_VAL);
-	printf("ds2482-100 status = %c", status);
-    i2c_master_stop(cmd);
-	esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
-    i2c_cmd_link_delete(cmd);
-	
-	if(ret == ESP_ERR_TIMEOUT) 
-		{
-            printf("I2C timeout\n");
-			return FALSE;
-        } 
-		else if(ret == ESP_OK) 
-		{
-            printf("\n");
-			return TRUE;
-		}
-    
-   // check for failure due to incorrect read back of status
-   //return ((status & 0xF7) == 0x10);
-}
-
-
-//--------------------------------------------------------------------------
-// Write the configuration register in the DS2482. The configuration
-// options are provided in the lower nibble of the provided config byte.
-// The uppper nibble in bitwise inverted when written to the DS2482.
-//
-// Returns:  TRUE: config written and response correct
-//           FALSE: response incorrect
-//
-int DS2482_write_config(unsigned char config)
-{
-   unsigned char read_config;
-
-   // Write configuration (Case A)
-   //   S AD,0 [A] WCFG [A] CF [A] Sr AD,1 [A] [CF] A\ P
-   //  [] indicates from slave
-   //  CF configuration byte to write
-
-   I2C_start();
-   I2C_write(I2C_address | I2C_WRITE, EXPECT_ACK);
-   I2C_write(CMD_WCFG, EXPECT_ACK);
-   I2C_write(config | (~config << 4), EXPECT_ACK);
-   I2C_rep_start();
-   I2C_write(I2C_address | I2C_READ, EXPECT_ACK);
-   read_config = I2C_read(NACK);
-   I2C_stop();
-
-   // check for failure due to incorrect read back
-   if (config != read_config)
+   else
    {
-      // handle error
-      // ...
-      DS2482_reset();
-
-      return FALSE;
+		printf("[DS2482_detect()] - ds2482-100 was written\n");
    }
-
+   
    return TRUE;
+   
 }
 
-
-
-
-
-
-/*
- * @brief test code to read esp-i2c-slave
- *        We need to fill the buffer of esp slave device, then master can read them out.
- *
- * _______________________________________________________________________________________
- * | start | slave_addr + rd_bit +ack | read n-1 bytes + ack | read 1 byte + nack | stop |
- * --------|--------------------------|----------------------|--------------------|------|
- *
- */
- 
- 
-static esp_err_t i2c_example_master_read_slave(i2c_port_t i2c_num, uint8_t* data_rd, size_t size)
-{
-    if (size == 0) {
-        return ESP_OK;
-    }
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, ( ESP_SLAVE_ADDR << 1 ) | READ_BIT, ACK_CHECK_EN);
-    if (size > 1) {
-        i2c_master_read(cmd, data_rd, size - 1, ACK_VAL);
-    }
-    i2c_master_read_byte(cmd, data_rd + size - 1, NACK_VAL);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
-    i2c_cmd_link_delete(cmd);
-    return ret;
-}
-
-
-
-/*
- * @brief Test code to write esp-i2c-slave
- *        Master device write data to slave(both esp32),
- *        the data will be stored in slave buffer.
- *        We can read them out from slave buffer.
- *
- * ___________________________________________________________________
- * | start | slave_addr + wr_bit + ack | write n bytes + ack  | stop |
- * --------|---------------------------|----------------------|------|
- *
- */
- 
- 
-static esp_err_t i2c_example_master_write_slave(i2c_port_t i2c_num, uint8_t* data_wr, size_t size)
-{
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, ( ESP_SLAVE_ADDR << 1 ) | WRITE_BIT, ACK_CHECK_EN);
-    i2c_master_write(cmd, data_wr, size, ACK_CHECK_EN);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
-    i2c_cmd_link_delete(cmd);
-    return ret;
-}
-
-/*
- * @brief test code to write esp-i2c-slave
- *
- * 1. set mode
- * _________________________________________________________________
- * | start | slave_addr + wr_bit + ack | write 1 byte + ack  | stop |
- * --------|---------------------------|---------------------|------|
- * 2. wait more than 24 ms
- * 3. read data
- * ______________________________________________________________________________________
- * | start | slave_addr + rd_bit + ack | read 1 byte + ack  | read 1 byte + nack | stop |
- * --------|---------------------------|--------------------|--------------------|------|
- */
- 
- 
-static esp_err_t i2c_example_master_sensor_test(i2c_port_t i2c_num, uint8_t* data_h, uint8_t* data_l)
-{
-    int ret;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, BH1750_SENSOR_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
-    i2c_master_write_byte(cmd, BH1750_CMD_START, ACK_CHECK_EN);
-    i2c_master_stop(cmd);
-    ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
-    i2c_cmd_link_delete(cmd);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    vTaskDelay(30 / portTICK_RATE_MS);
-    cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, BH1750_SENSOR_ADDR << 1 | READ_BIT, ACK_CHECK_EN);
-    i2c_master_read_byte(cmd, data_h, ACK_VAL);
-    i2c_master_read_byte(cmd, data_l, NACK_VAL);
-    i2c_master_stop(cmd);
-    ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
-    i2c_cmd_link_delete(cmd);
-    return ret;
-}
 
 
 /*
@@ -402,108 +402,24 @@ static void i2c_master_init()
 
 
 
-/*
- * @brief test function to show buffer
- */
- 
-
-static void disp_buf(uint8_t* buf, int len)
-{
-    int i;
-    for (i = 0; i < len; i++) {
-        printf("%02x ", buf[i]);
-        if (( i + 1 ) % 16 == 0) {
-            printf("\n");
-        }
-    }
-    printf("\n");
-}
 
 
 static void ds2482_task(void* arg)
 {
-    int i = 0;
-    int ret;
+    
+    /*
     uint32_t task_idx = (uint32_t) arg;
     uint8_t* data = (uint8_t*) malloc(DATA_LENGTH);
     uint8_t* data_wr = (uint8_t*) malloc(DATA_LENGTH);
     uint8_t* data_rd = (uint8_t*) malloc(DATA_LENGTH);
     uint8_t sensor_data_h, sensor_data_l;
+	*/
     int cnt = 0;
 	DS2482_detect();
     while (1) {
         printf("test cnt: %d\n", cnt++);
-        ret = i2c_example_master_sensor_test( I2C_EXAMPLE_MASTER_NUM, &sensor_data_h, &sensor_data_l);
-        xSemaphoreTake(print_mux, portMAX_DELAY);
-        if(ret == ESP_ERR_TIMEOUT) {
-            printf("I2C timeout\n");
-        } else if(ret == ESP_OK) {
-            printf("*******************\n");
-            printf("TASK[%d]  MASTER READ SENSOR( BH1750 )\n", task_idx);
-            printf("*******************\n");
-            printf("data_h: %02x\n", sensor_data_h);
-            printf("data_l: %02x\n", sensor_data_l);
-            printf("sensor val: %f\n", (sensor_data_h << 8 | sensor_data_l) / 1.2);
-        } else {
-            printf("No ack, sensor not connected...skip...\n");
-        }
-        xSemaphoreGive(print_mux);
-        vTaskDelay(( DELAY_TIME_BETWEEN_ITEMS_MS * ( task_idx + 1 ) ) / portTICK_RATE_MS);
-        //---------------------------------------------------
-        for (i = 0; i < DATA_LENGTH; i++) {
-            data[i] = i;
-        }
-        xSemaphoreTake(print_mux, portMAX_DELAY);
-        size_t d_size = i2c_slave_write_buffer(I2C_EXAMPLE_SLAVE_NUM, data, RW_TEST_LENGTH, 1000 / portTICK_RATE_MS);
-        if (d_size == 0) {
-            printf("i2c slave tx buffer full\n");
-            ret = i2c_example_master_read_slave(I2C_EXAMPLE_MASTER_NUM, data_rd, DATA_LENGTH);
-        } else {
-            ret = i2c_example_master_read_slave(I2C_EXAMPLE_MASTER_NUM, data_rd, RW_TEST_LENGTH);
-        }
-
-        if (ret == ESP_ERR_TIMEOUT) {
-            printf("I2C timeout\n");
-            printf("*********\n");
-        } else if (ret == ESP_OK) {
-            printf("*******************\n");
-            printf("TASK[%d]  MASTER READ FROM SLAVE\n", task_idx);
-            printf("*******************\n");
-            printf("====TASK[%d] Slave buffer data ====\n", task_idx);
-            disp_buf(data, d_size);
-            printf("====TASK[%d] Master read ====\n", task_idx);
-            disp_buf(data_rd, d_size);
-        } else {
-            printf("Master read slave error, IO not connected...\n");
-        }
-        xSemaphoreGive(print_mux);
-        vTaskDelay(( DELAY_TIME_BETWEEN_ITEMS_MS * ( task_idx + 1 ) ) / portTICK_RATE_MS);
-        //---------------------------------------------------
-        int size;
-        for (i = 0; i < DATA_LENGTH; i++) {
-            data_wr[i] = i + 10;
-        }
-        xSemaphoreTake(print_mux, portMAX_DELAY);
-        //we need to fill the slave buffer so that master can read later
-        ret = i2c_example_master_write_slave( I2C_EXAMPLE_MASTER_NUM, data_wr, RW_TEST_LENGTH);
-        if (ret == ESP_OK) {
-            size = i2c_slave_read_buffer( I2C_EXAMPLE_SLAVE_NUM, data, RW_TEST_LENGTH, 1000 / portTICK_RATE_MS);
-        }
-        if (ret == ESP_ERR_TIMEOUT) {
-            printf("I2C timeout\n");
-        } else if (ret == ESP_OK) {
-            printf("*******************\n");
-            printf("TASK[%d]  MASTER WRITE TO SLAVE\n", task_idx);
-            printf("*******************\n");
-            printf("----TASK[%d] Master write ----\n", task_idx);
-            disp_buf(data_wr, RW_TEST_LENGTH);
-            printf("----TASK[%d] Slave read: [%d] bytes ----\n", task_idx, size);
-            disp_buf(data, size);
-        } else {
-            printf("TASK[%d] Master write slave error, IO not connected....\n", task_idx);
-        }
-        xSemaphoreGive(print_mux);
-        vTaskDelay(( DELAY_TIME_BETWEEN_ITEMS_MS * ( task_idx + 1 ) ) / portTICK_RATE_MS);
+        DS2482_detect();
+        vTaskDelay(1000 / portTICK_RATE_MS);
     }
 }
 
@@ -567,10 +483,10 @@ void app_main()
 	
 	
 	
-    print_mux = xSemaphoreCreateMutex();
+    //print_mux = xSemaphoreCreateMutex();
     
     i2c_master_init();
-    xTaskCreate(i2c_task, "i2c_task", 1024 * 2, (void* ) 1, 10, NULL);
+    xTaskCreate(ds2482_task, "ds2482_task", 1024 * 2, (void* ) 1, 10, NULL);
 
 }
 
