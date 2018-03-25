@@ -1,10 +1,10 @@
 # wifi termostat progect
 
  
-* This example will show you how to use I2C module by running two tasks on i2c bus:
+* This code will show you how to use I2C module by running task on i2c bus:
  
-    * read external i2c sensor, here we use a BH1750 light sensor(GY-30 module) for instance.
-    * Use one I2C port(master mode) to read or write the other I2C port(slave mode) on one ESP32 chip.
+    * read\write registers external i2c gateway, here we use a ds2482-100.
+    * Use one I2C port(master mode) to read or write the other slave.
  
 * Pin assignment:
  
