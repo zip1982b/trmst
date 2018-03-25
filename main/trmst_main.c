@@ -417,14 +417,35 @@ int OWReset(void)
 
    // loop checking 1WB bit for completion of 1-Wire operation
    // abort if poll limit reached
-   i2c_master_read_byte(cmd, &status, ACK_CHECK_EN); //[byte - STATUS register] [Acknowledged]
    do
    {
-      status = I2C_read(status & STATUS_1WB);
+      i2c_master_read_byte(cmd, &status, ACK_CHECK_EN); //[byte - STATUS register] [Acknowledged]
    }
-   while ((status & STATUS_1WB) && (poll_count++ < POLL_LIMIT));
+   while ((status & STATUS_1WB) && (poll_count++ < POLL_LIMIT));// ????????
 
-   I2C_stop();
+   i2c_master_stop(cmd);
+   ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+   i2c_cmd_link_delete(cmd);
+   switch(ret){
+			case ESP_OK:
+				printf("[OWReset()] - CMD_1WRS = OK\n");
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[OWReset()] - CMD_1WRS Parameter error \n");
+				return FALSE;
+			case ESP_FAIL:
+				printf("[OWReset()] - CMD_1WRS Sending command error, slave doesn't ACK the transfer \n");
+				return FALSE;
+			case ESP_ERR_INVALID_STATE:
+				printf("[OWReset()] - CMD_1WRS I2C driver not installed or not in master mode \n");
+				return FALSE;
+			case ESP_ERR_TIMEOUT:
+				printf("[OWReset()] - CMD_1WRS Operation timeout because the bus is busy \n");
+				return FALSE;
+			default:
+				printf( "OWReset() hmmmmmmmmmmmmmmm\n" );
+				return FALSE;
+		}
 
    // check for failure due to poll limit reached
    if (poll_count >= POLL_LIMIT)
