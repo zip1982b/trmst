@@ -13,7 +13,6 @@
 #include "driver/i2c.h"
 #include "driver/gpio.h"
 
-
 #include "ssd1366.h"
 #include "font8x8_basic.h"
 
@@ -36,14 +35,7 @@
  *    GPIO18 is assigned as the data signal of i2c master port
  *    GPIO19 is assigned as the clock signal of i2c master port
  *
- *
- *
- *
  * Test items:
- *
- *
- *
- *
  */
  
  
@@ -72,11 +64,14 @@
 #define I2C_EXAMPLE_MASTER_TX_BUF_DISABLE  0                /*!< I2C master do not need buffer */
 #define I2C_EXAMPLE_MASTER_RX_BUF_DISABLE  0                /*!< I2C master do not need buffer */
 #define I2C_EXAMPLE_MASTER_FREQ_HZ         100000           /*!< I2C master clock frequency */
+
 #define tag "SSD1306"
 
 #define DS2482_ADDR			               0x18             /*!< slave address for DS2482 bridge */
-
 #define ssd1306_ADDR                       0x3C             /*!< oled display slave address, you can set any 7bit value */
+
+
+
 #define WRITE_BIT                          I2C_MASTER_WRITE /*!< I2C master write */
 #define READ_BIT                           I2C_MASTER_READ  /*!< I2C master read */
 #define ACK_CHECK_EN                       0x1              /*!< I2C master will check ack from slave*/
@@ -88,6 +83,10 @@
 #define CONFIG_APU 0x01
 #define CMD_DRST 0xF0	//command 'device reset'
 #define CMD_WCFG 0xD2	//Command 'Write Configuration'
+#define CMD_1WRS 0xB4	//command '1 wire reset'
+
+
+
 #define TRUE 1
 #define FALSE 0
 
@@ -97,7 +96,9 @@ int c1WS;// 1-Wire speed
 int cSPU;// Strong pullup
 int cPPM;// Presence pulse masking
 int cAPU;// Active pullup
-int short_detected; //
+int short_detected;
+
+
 
 
 
@@ -151,7 +152,7 @@ static void ENC(void* arg)
 
 
 
-//--------------------------------------------------------------------------
+//-------------------------DS2482-100------------------------------------
 // Perform a device reset on the DS2482
 //
 // Returns: TRUE if device was reset
@@ -171,7 +172,6 @@ static int DS2482_reset()
 	// [SS] - SS status byte to read to verify state
 	// 	A\ - not Acknowledged
 	// P - STOP Condition
-	
     //   S AD,0 [A] DRST [A] Sr AD,1 [A] [SS] A\ P
     //  [] indicates from slave
     //  SS status byte to read to verify state
@@ -206,12 +206,10 @@ static int DS2482_reset()
 				printf( "hmmmmmmmmmmmmmmm\n" );
 				return FALSE;
 		}
-		//vTaskDelay(30 / portTICK_RATE_MS);
 		cmd = i2c_cmd_link_create();
 		i2c_master_start(cmd);// S - start
 		i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN);//AD,1 - [Acknowledged]
 		i2c_master_read_byte(cmd, &status, NACK_VAL); //[SS] notAcknowledged
-		//printf("ds2482-100 status = %d\n", status);
 		i2c_master_stop(cmd);
 		ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 		i2c_cmd_link_delete(cmd);
@@ -258,13 +256,13 @@ static int DS2482_write_config(uint8_t config)
    uint8_t tmp;
    uint8_t reg_config;
    tmp = config;
-   reg_config = config | (~tmp << 4);
+   reg_config = config | (~tmp << 4);//is the one’s complement of the lower nibble
    printf("reg_config = %d\n", reg_config);
    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
    i2c_master_start(cmd); // S - start
    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
    i2c_master_write_byte(cmd, CMD_WCFG, ACK_CHECK_EN); //WCFG - [Acknowledged]
-   i2c_master_write_byte(cmd, reg_config, ACK_CHECK_EN); //WCFG - [Acknowledged]
+   i2c_master_write_byte(cmd, reg_config, ACK_CHECK_EN); //CF - [Acknowledged]
    i2c_master_stop(cmd);
    esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
    i2c_cmd_link_delete(cmd);
@@ -288,19 +286,16 @@ static int DS2482_write_config(uint8_t config)
 				printf( "CMD_WCFG hmmmmmmmmmmmmmmm\n" );
 				return FALSE;
 		}
-	//vTaskDelay(30 / portTICK_RATE_MS);
 	cmd = i2c_cmd_link_create();
 	i2c_master_start(cmd);// S - start
 	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
 	i2c_master_read_byte(cmd, &read_config, NACK_VAL); //[SS] notAcknowledged
-	
 	i2c_master_stop(cmd);
 	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 			case ESP_OK:
-				printf("read_config = %d\n", read_config);
-				printf("[DS2482_write_config()] - CMD_WCFG = OK\n");
+				printf("[DS2482_write_config()] - CMD_WCFG = OK, read_config = %d\n", read_config);
 				return TRUE;
 			case ESP_ERR_INVALID_ARG:
 				printf("[DS2482_write_config()] - CMD_WCFG Parameter error \n");
@@ -319,16 +314,6 @@ static int DS2482_write_config(uint8_t config)
 				return FALSE;
 		}
 }
-
-
-
-
-
-
-
-
-
-
 
 
 //--------------------------------------------------------------------------
@@ -360,8 +345,10 @@ int DS2482_detect()
    cSPU = FALSE;
    cPPM = FALSE;
    cAPU = CONFIG_APU;
-
    // write the default configuration setup
+   //|~1WS = 1|~SPU = 1|1|~APU = 0|1WS = 0|SPU = 0|0|APU = 1| - Configuration Register DS2482-100 = 225(d), E1(h)
+   //When read the upper nibble is always 0h.
+   //When write register is the one’s complement of the lower nibble
    if (!DS2482_write_config(c1WS | cSPU | cPPM | cAPU))
    {
 	   printf("[DS2482_detect()] - ds2482-100 failure to write configuration byte\n");
@@ -376,13 +363,96 @@ int DS2482_detect()
    
 }
 
+//*********************DS2482 1-Wire Operations***********************************
+//OWReset
+//OWWriteBit/OWReadBit
+//OWWriteByte
+//OWReadByte
+//OWBlock
+//OWSearch/1-Wire Triplet Command
+//--------------------------------------------------------------------------
+// Reset all of the devices on the 1-Wire Net and return the result.
+// S AD,0 [A] 1WRS [A] S AD,1 [A] [byte - STATUS register] A [byte STATUS register] A\ P
+// Returns: TRUE(1):  presence pulse(s) detected, device(s) reset
+//          FALSE(0): no presence pulses detected
+//
+int OWReset(void)
+{
+   uint8_t status;
+   int poll_count = 0;
+   //   S AD,0 [A] 1WRS [A] Sr AD,1 [A] [Status] A [Status] A\ P
+   //                                   \--------/
+   //                       Repeat until 1WB bit has changed to 0
+   //  [] indicates from slave
+   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+   i2c_master_start(cmd); // S - start
+   i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
+   i2c_master_write_byte(cmd, CMD_1WRS, ACK_CHECK_EN); //1WRS - [Acknowledged]
+   i2c_master_stop(cmd);
+   esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+   i2c_cmd_link_delete(cmd);
+   switch(ret){
+			case ESP_OK:
+				printf("[OWReset()] - CMD_1WRS = OK\n");
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[OWReset()] - CMD_1WRS Parameter error \n");
+				return FALSE;
+			case ESP_FAIL:
+				printf("[OWReset()] - CMD_1WRS Sending command error, slave doesn't ACK the transfer \n");
+				return FALSE;
+			case ESP_ERR_INVALID_STATE:
+				printf("[OWReset()] - CMD_1WRS I2C driver not installed or not in master mode \n");
+				return FALSE;
+			case ESP_ERR_TIMEOUT:
+				printf("[OWReset()] - CMD_1WRS Operation timeout because the bus is busy \n");
+				return FALSE;
+			default:
+				printf( "OWReset() hmmmmmmmmmmmmmmm\n" );
+				return FALSE;
+		}
+   cmd = i2c_cmd_link_create();
+   i2c_master_start(cmd);// S - start
+   i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
+
+   // loop checking 1WB bit for completion of 1-Wire operation
+   // abort if poll limit reached
+   i2c_master_read_byte(cmd, &status, ACK_CHECK_EN); //[byte - STATUS register] [Acknowledged]
+   do
+   {
+      status = I2C_read(status & STATUS_1WB);
+   }
+   while ((status & STATUS_1WB) && (poll_count++ < POLL_LIMIT));
+
+   I2C_stop();
+
+   // check for failure due to poll limit reached
+   if (poll_count >= POLL_LIMIT)
+   {
+      // handle error
+      // ...
+      DS2482_reset();
+      return FALSE;
+   }
+
+   // check for short condition
+   if (status & STATUS_SD)
+      short_detected = TRUE;
+   else
+      short_detected = FALSE;
+
+   // check for presence detect
+   if (status & STATUS_PPD)
+      return TRUE;
+   else
+      return FALSE;
+}
+
 
 
 /*
  * @brief i2c master initialization
  */
- 
- 
 static void i2c_master_init()
 {
     int i2c_master_port = I2C_EXAMPLE_MASTER_NUM;
