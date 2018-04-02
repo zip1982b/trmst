@@ -96,7 +96,7 @@ int c1WS;// 1-Wire speed
 int cSPU;// Strong pullup
 int cPPM;// Presence pulse masking
 int cAPU;// Active pullup
-int short_detected;
+uint8_t short_detected;
 
 
 
@@ -150,6 +150,11 @@ static void ENC(void* arg)
     }
 }
 
+/* getbits: получает n бит, начиная с p-й позиции */
+uint8_t getbits(uint8_t x, int p, int n)
+{
+	return (x >> (p+1-n)) & ~(~0 << n);
+}
 
 
 //-------------------------DS2482-100------------------------------------
@@ -257,6 +262,7 @@ static int DS2482_write_config(uint8_t config)
    uint8_t reg_config;
    tmp = config;
    reg_config = config | (~tmp << 4);//is the one’s complement of the lower nibble
+   tmp = 0;
    printf("reg_config = %d\n", reg_config);
    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
    i2c_master_start(cmd); // S - start
@@ -289,14 +295,27 @@ static int DS2482_write_config(uint8_t config)
 	cmd = i2c_cmd_link_create();
 	i2c_master_start(cmd);// S - start
 	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
-	i2c_master_read_byte(cmd, &read_config, NACK_VAL); //[SS] notAcknowledged
+	i2c_master_read_byte(cmd, &read_config, NACK_VAL); //[CF] notAcknowledged
 	i2c_master_stop(cmd);
 	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 			case ESP_OK:
 				printf("[DS2482_write_config()] - CMD_WCFG = OK, read_config = %d\n", read_config);
-				return TRUE;
+				tmp = getbits(reg_config, 3, 4);
+				printf("[DS2482_write_config()] - tmp = %d\n", tmp);
+				
+				if (tmp != read_config)
+				{
+				  // handle error
+				  printf("[DS2482_write_config()] - DS2482_reset()\n");
+				  DS2482_reset();
+				  return FALSE;
+				}
+				else if(tmp == read_config)
+				{
+					return TRUE;
+				}
 			case ESP_ERR_INVALID_ARG:
 				printf("[DS2482_write_config()] - CMD_WCFG Parameter error \n");
 				return FALSE;
@@ -313,6 +332,7 @@ static int DS2482_write_config(uint8_t config)
 				printf( "CMD_WCFG hmmmmmmmmmmmmmmm\n" );
 				return FALSE;
 		}
+	
 }
 
 
@@ -344,7 +364,7 @@ int DS2482_detect()
    c1WS = FALSE;
    cSPU = FALSE;
    cPPM = FALSE;
-   cAPU = CONFIG_APU;
+   cAPU = 1;
    // write the default configuration setup
    //|~1WS = 1|~SPU = 1|1|~APU = 0|1WS = 0|SPU = 0|0|APU = 1| - Configuration Register DS2482-100 = 225(d), E1(h)
    //When read the upper nibble is always 0h.
@@ -379,7 +399,11 @@ int DS2482_detect()
 int OWReset(void)
 {
    uint8_t status;
-   int poll_count = 0;
+   uint8_t SD; //Short detected
+   uint8_t PPD; //presence pulse detected
+   int count = 0;
+   //uint8_t tmp;
+   //int poll_count = 0;
    //   S AD,0 [A] 1WRS [A] Sr AD,1 [A] [Status] A [Status] A\ P
    //                                   \--------/
    //                       Repeat until 1WB bit has changed to 0
@@ -414,21 +438,45 @@ int OWReset(void)
    cmd = i2c_cmd_link_create();
    i2c_master_start(cmd);// S - start
    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
-
+	
    // loop checking 1WB bit for completion of 1-Wire operation
    // abort if poll limit reached
    do
    {
-      i2c_master_read_byte(cmd, &status, ACK_CHECK_EN); //[byte - STATUS register] [Acknowledged]
+      i2c_master_read_byte(cmd, &status, ACK_VAL); //[byte - STATUS register] [Acknowledged]
+	  printf("test count: %d\n", ++count);
    }
-   while ((status & STATUS_1WB) && (poll_count++ < POLL_LIMIT));// ????????
+   while (status & 0x01);//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
 
+   i2c_master_read_byte(cmd, &status, NACK_VAL); //[byte - STATUS register] [NotAcknowledged]
    i2c_master_stop(cmd);
    ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
    i2c_cmd_link_delete(cmd);
+   
+   
+   /*
+   printf("[OWReset()] status register  = %d, [NotAcknowledged]\n", status);
+   printf("[OWReset()] SD PPD status = %d\n", status);
+   SD = getbits(status, 2, 1);
+   PPD = getbits(status, 1, 1);
+   */
    switch(ret){
 			case ESP_OK:
-				printf("[OWReset()] - CMD_1WRS = OK\n");
+				printf("[OWReset()] - status = %d\n", status);
+				//tmp = status;
+				//PPD = getbits(tmp, 1, 1);
+				if(status & 0x02)
+				{
+					PPD = TRUE;
+					printf("[OWReset()] - PPD = %d\n", PPD);
+				}
+				if(status & 0x04)
+				{
+					SD = TRUE;
+					printf("[OWReset()] - SD = %d\n", SD);
+				}
+				//SD = getbits(tmp, 2, 1);
+				
 				break;
 			case ESP_ERR_INVALID_ARG:
 				printf("[OWReset()] - CMD_1WRS Parameter error \n");
@@ -446,7 +494,8 @@ int OWReset(void)
 				printf( "OWReset() hmmmmmmmmmmmmmmm\n" );
 				return FALSE;
 		}
-
+		
+	/*
    // check for failure due to poll limit reached
    if (poll_count >= POLL_LIMIT)
    {
@@ -455,15 +504,22 @@ int OWReset(void)
       DS2482_reset();
       return FALSE;
    }
-
+	*/
+	
    // check for short condition
-   if (status & STATUS_SD)
-      short_detected = TRUE;
+   
+   if (SD)
+   {
+	   printf( "OWReset() short_detected = %d\n", SD);
+   }
    else
-      short_detected = FALSE;
-
+   {
+	   printf( "OWReset() short_detected = %d\n", SD); 
+   }
+   
    // check for presence detect
-   if (status & STATUS_PPD)
+   
+   if (PPD)
       return TRUE;
    else
       return FALSE;
@@ -507,10 +563,13 @@ static void ds2482_task(void* arg)
 	*/
     int cnt = 0;
 	DS2482_detect();
+	vTaskDelay(1000 / portTICK_RATE_MS);
+	DS2482_detect();
     while (1) {
         printf("test cnt: %d\n", cnt++);
-        DS2482_detect();
         vTaskDelay(1000 / portTICK_RATE_MS);
+		OWReset();
+		vTaskDelay(3000 / portTICK_RATE_MS);
     }
 }
 
