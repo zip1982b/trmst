@@ -398,11 +398,16 @@ int DS2482_detect()
 //
 int OWReset(void)
 {
-   uint8_t status;
+   uint8_t status = 0;
+   uint8_t *st; // pointer to status
    uint8_t SD; //Short detected
    uint8_t PPD; //presence pulse detected
-   int count = 0;
-   //uint8_t tmp;
+   //int count = 0;
+   st = &status;
+   
+   
+   
+   
    //int poll_count = 0;
    //   S AD,0 [A] 1WRS [A] Sr AD,1 [A] [Status] A [Status] A\ P
    //                                   \--------/
@@ -443,39 +448,39 @@ int OWReset(void)
    // abort if poll limit reached
    do
    {
-      i2c_master_read_byte(cmd, &status, ACK_VAL); //[byte - STATUS register] [Acknowledged]
-	  printf("test count: %d\n", ++count);
+      i2c_master_read_byte(cmd, st, ACK_VAL); //[byte - STATUS register] [Acknowledged]
+	  //printf("counter: %d\n", ++count);
    }
-   while (status & 0x01);//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
+   while (*st & 0x01);//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
 
-   i2c_master_read_byte(cmd, &status, NACK_VAL); //[byte - STATUS register] [NotAcknowledged]
+   i2c_master_read_byte(cmd, st, NACK_VAL); //[byte - STATUS register] [NotAcknowledged]
    i2c_master_stop(cmd);
    ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
    i2c_cmd_link_delete(cmd);
-   
-   
-   /*
-   printf("[OWReset()] status register  = %d, [NotAcknowledged]\n", status);
-   printf("[OWReset()] SD PPD status = %d\n", status);
-   SD = getbits(status, 2, 1);
-   PPD = getbits(status, 1, 1);
-   */
    switch(ret){
 			case ESP_OK:
+				printf("[OWReset()] - *st = %d\n", *st);
 				printf("[OWReset()] - status = %d\n", status);
-				//tmp = status;
-				//PPD = getbits(tmp, 1, 1);
-				if(status & 0x02)
+				if(*st & 0x02)
 				{
 					PPD = TRUE;
 					printf("[OWReset()] - PPD = %d\n", PPD);
 				}
-				if(status & 0x04)
+				else
 				{
+					PPD = FALSE;
+					printf("[OWReset()] - PPD = %d\n", PPD);
+				}
+				
+				if(*st & 0x04)				{
 					SD = TRUE;
 					printf("[OWReset()] - SD = %d\n", SD);
 				}
-				//SD = getbits(tmp, 2, 1);
+				else{
+					SD = FALSE;
+					printf("[OWReset()] - SD = %d\n", SD);
+				}
+				
 				
 				break;
 			case ESP_ERR_INVALID_ARG:
@@ -507,15 +512,6 @@ int OWReset(void)
 	*/
 	
    // check for short condition
-   
-   if (SD)
-   {
-	   printf( "OWReset() short_detected = %d\n", SD);
-   }
-   else
-   {
-	   printf( "OWReset() short_detected = %d\n", SD); 
-   }
    
    // check for presence detect
    
@@ -568,7 +564,14 @@ static void ds2482_task(void* arg)
     while (1) {
         printf("test cnt: %d\n", cnt++);
         vTaskDelay(1000 / portTICK_RATE_MS);
-		OWReset();
+		if(OWReset())
+		{
+			printf("1 wire device detected\n");
+		}
+		else
+		{
+			printf("1 wire device not detected\n");
+		}
 		vTaskDelay(3000 / portTICK_RATE_MS);
     }
 }
