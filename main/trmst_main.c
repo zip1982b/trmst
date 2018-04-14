@@ -79,12 +79,23 @@
 #define ACK_VAL                            0x0              /*!< I2C ack value */
 #define NACK_VAL                           0x1              /*!< I2C nack value */
 
+#define POLL_LIMIT 24
+
+#define STATUS_SBR 0x20
+#define STATUS_PPD 0x02
+#define STATUS_SD 0x04
+#define STATUS_1WB 0x01
+
 
 #define CONFIG_APU 0x01
 #define CMD_DRST 0xF0	//command 'device reset'
 #define CMD_WCFG 0xD2	//Command 'Write Configuration'
 #define CMD_1WRS 0xB4	//command '1 wire reset'
-
+#define CMD_1WSB 0x87	//command '1 wire single bit'
+#define CMD_1WWB 0xA5	//Command '1-Wire Write Byte'
+#define CMD_1WRB 0x96	//Command '1-Wire Read Byte'
+#define CMD_1WT 0x78	//Command '1-Wire Triplet'
+#define CMD_SRP 0xE1	//Command 'Set Read Pointer'
 
 
 #define TRUE 1
@@ -155,6 +166,9 @@ uint8_t getbits(uint8_t x, int p, int n)
 {
 	return (x >> (p+1-n)) & ~(~0 << n);
 }
+
+
+
 
 
 //-------------------------DS2482-100------------------------------------
@@ -402,7 +416,7 @@ int OWReset(void)
    uint8_t *st; // pointer to status
    uint8_t SD; //Short detected
    uint8_t PPD; //presence pulse detected
-   //int count = 0;
+   int poll_count = 0;
    st = &status;
    
    
@@ -451,7 +465,7 @@ int OWReset(void)
       i2c_master_read_byte(cmd, st, ACK_VAL); //[byte - STATUS register] [Acknowledged]
 	  //printf("counter: %d\n", ++count);
    }
-   while (*st & 0x01);//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
+   while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT));//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
 
    i2c_master_read_byte(cmd, st, NACK_VAL); //[byte - STATUS register] [NotAcknowledged]
    i2c_master_stop(cmd);
@@ -461,7 +475,7 @@ int OWReset(void)
 			case ESP_OK:
 				printf("[OWReset()] - *st = %d\n", *st);
 				printf("[OWReset()] - status = %d\n", status);
-				if(*st & 0x02)
+				if(*st & STATUS_PPD)
 				{
 					PPD = TRUE;
 					printf("[OWReset()] - PPD = %d\n", PPD);
@@ -472,7 +486,8 @@ int OWReset(void)
 					printf("[OWReset()] - PPD = %d\n", PPD);
 				}
 				
-				if(*st & 0x04)				{
+				if(*st & STATUS_SD)	
+				{
 					SD = TRUE;
 					printf("[OWReset()] - SD = %d\n", SD);
 				}
@@ -500,7 +515,7 @@ int OWReset(void)
 				return FALSE;
 		}
 		
-	/*
+	
    // check for failure due to poll limit reached
    if (poll_count >= POLL_LIMIT)
    {
@@ -509,7 +524,7 @@ int OWReset(void)
       DS2482_reset();
       return FALSE;
    }
-	*/
+
 	
    // check for short condition
    
@@ -520,6 +535,329 @@ int OWReset(void)
    else
       return FALSE;
 }
+
+
+
+
+//----------------------------------------------------------------------------
+// Send bit of communication to the 1-wire net and return the result
+// 1 bit read from the 1-wire net. The parametr 'sendbit' least
+// significant bit is used and the least significant bit of the
+// result is the return bit.
+// 'sendbit' - the least significant bit is the bit to send
+// Returns: 0 - 0 bit read from sendbit
+//			1 - 1 bit read from sendbit
+uint8_t OWTouchBit(uint8_t sendbit)
+{
+	uint8_t status;
+	uint8_t *st; // pointer to status
+	st = &status;
+	int poll_count = 0;
+	// 1-wire bit (Case B)
+	// S AD,0 [A] 1WSB [A] BB [A] Sr AD,1 [A] [Status] A [Status] A\ P
+	// 										   \--------/
+	//                      Repeat until 1WB bit has changed to 0
+	// [] indicates from slave
+	// BB indicates byte containing bit value in msbit
+	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd); // S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
+	i2c_master_write_byte(cmd, CMD_1WSB, ACK_CHECK_EN); //1WSB - [Acknowledged]
+	i2c_master_write_byte(cmd, sendbit ? 0x80 : 0x00, ACK_CHECK_EN); //1WSB - [Acknowledged]
+	i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+	switch(ret){
+			case ESP_OK:
+				printf("[OWTouchBit()] - CMD_1WSB = OK\n");
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[OWTouchBit()] - CMD_1WSB Parameter error \n");
+				return FALSE;
+			case ESP_FAIL:
+				printf("[OWTouchBit()] - CMD_1WSB Sending command error, slave doesn't ACK the transfer \n");
+				return FALSE;
+			case ESP_ERR_INVALID_STATE:
+				printf("[OWTouchBit()] - CMD_1WSB I2C driver not installed or not in master mode \n");
+				return FALSE;
+			case ESP_ERR_TIMEOUT:
+				printf("[OWTouchBit()] - CMD_1WSB Operation timeout because the bus is busy \n");
+				return FALSE;
+			default:
+				printf( "OWTouchBit() hmmmmmmmmmmmmmmm\n" );
+				return FALSE;
+		}
+	cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);// S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
+	// loop checking 1WB bit for completion of 1-Wire operation
+    // abort if poll limit reached
+	// loop checking 1WB bit for completion of 1-Wire operation
+   // abort if poll limit reached
+    do
+    {
+      i2c_master_read_byte(cmd, st, ACK_VAL); //[byte - STATUS register] [Acknowledged]
+	  //printf("counter: %d\n", ++count);
+    }
+    while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT));//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
+
+    i2c_master_read_byte(cmd, st, NACK_VAL); //[byte - STATUS register] [NotAcknowledged]
+    i2c_master_stop(cmd);
+    ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+    switch(ret){
+			case ESP_OK:
+				printf("[OWTouchBit()] - *st = %d\n", *st);
+				printf("[OWTouchBit()] - status = %d\n", status);
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[OWTouchBit()] - CMD_1WRS Parameter error \n");
+				return FALSE;
+			case ESP_FAIL:
+				printf("[OWTouchBit()] - CMD_1WRS Sending command error, slave doesn't ACK the transfer \n");
+				return FALSE;
+			case ESP_ERR_INVALID_STATE:
+				printf("[OWTouchBit()] - CMD_1WRS I2C driver not installed or not in master mode \n");
+				return FALSE;
+			case ESP_ERR_TIMEOUT:
+				printf("[OWTouchBit()] - CMD_1WRS Operation timeout because the bus is busy \n");
+				return FALSE;
+			default:
+				printf( "OWTouchBit() hmmmmmmmmmmmmmmm\n" );
+				return FALSE;
+		}
+	
+	if(poll_count >= POLL_LIMIT)
+	{
+		DS2482_reset();
+		return FALSE;
+	}
+	
+	
+    if(*st & STATUS_SBR)
+	{
+		return TRUE;
+	}
+	else
+	{
+		return FALSE;
+	}
+	
+	
+}
+
+
+
+//----------------------------------------------------------------------------
+// Send 1 bit of communication to the 1-wire net.
+// The parameter 'sendbit' least significant bit is used.
+// 'sendbit' - 1 bit to send (least significant byte)
+
+void OWWriteBit(uint8_t sendbit)
+{
+	OWTouchBit(sendbit);
+}
+
+
+
+//----------------------------------------------------------------------------
+// Reads 1 bit of communication from the 1-wire net and returns the result
+// Returns: 1 bit read from 1-wire net
+uint8_t OWReadBit(void)
+{
+	return OWTouchBit(0x01);
+}
+
+
+
+
+
+
+//-------------------------------------------------------------------------------------
+// Send 8 bits of communication to the 1-wire net and verify that the
+// 8 bits read from the 1-wire net are the same (write operation).
+// The parameter 'sendbyte' least significant 8 bits are used.
+// 'sendbyte' - 8 bits to send (least significant byte)
+// Returns: TRUE: bytes written and echo was the same
+// 			FALSE: echo was not the same
+void OWWriteByte(uint8_t sendbyte)
+{
+	uint8_t status;
+	int poll_count = 0;
+	uint8_t *st; // pointer to status
+	st = &status;
+	// 1-wire write byte (Case B)
+	// S AD,0 [A] 1WWB [A] DD [A] Sr AD,1 [A] [Status] A [Status] A\ P
+	// 										  \--------/
+	//							Repeat until 1WB bit has changed to 0
+	// DD data to write
+	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd); // S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
+	i2c_master_write_byte(cmd, CMD_1WWB, ACK_CHECK_EN); //1WSB - [Acknowledged]
+	i2c_master_write_byte(cmd, sendbyte, ACK_CHECK_EN); //DD - [Acknowledged]
+	i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+	switch(ret){
+			case ESP_OK:
+				printf("[OWWriteByte()] - CMD_1WWB = OK\n");
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[OWWriteByte()] - CMD_1WWB Parameter error \n");
+			case ESP_FAIL:
+				printf("[OWWriteByte()] - CMD_1WWB Sending command error, slave doesn't ACK the transfer \n");
+			case ESP_ERR_INVALID_STATE:
+				printf("[OWWriteByte()] - CMD_1WWB I2C driver not installed or not in master mode \n");
+			case ESP_ERR_TIMEOUT:
+				printf("[OWWriteByte()] - CMD_1WWB Operation timeout because the bus is busy \n");
+			default:
+				printf( "OWWriteByte() hmmmmmmmmmmmmmmm\n" );
+		}
+	cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);// S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
+	
+	// loop checking 1WB bit for completion of 1-Wire operation
+    // abort if poll limit reached
+	do
+    {
+      i2c_master_read_byte(cmd, st, ACK_VAL); //[byte - STATUS register] [Acknowledged]
+	  //printf("counter: %d\n", ++count);
+    }
+    while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT));//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
+
+    i2c_master_read_byte(cmd, st, NACK_VAL); //[byte - STATUS register] [NotAcknowledged]
+    i2c_master_stop(cmd);
+    ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+    switch(ret){
+			case ESP_OK:
+				printf("[OWWriteByte()] - *st = %d\n", *st);
+				printf("[OWWriteByte()] - status = %d\n", status);
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[OWWriteByte()] - CMD_1WWB Parameter error \n");
+			case ESP_FAIL:
+				printf("[OWWriteByte()] - CMD_1WWB Sending command error, slave doesn't ACK the transfer \n");
+			case ESP_ERR_INVALID_STATE:
+				printf("[OWWriteByte()] - CMD_1WWB I2C driver not installed or not in master mode \n");
+			case ESP_ERR_TIMEOUT:
+				printf("[OWWriteByte()] - CMD_1WWB Operation timeout because the bus is busy \n");
+			default:
+				printf( "OWWriteByte() hmmmmmmmmmmmmmmm\n" );
+		}
+		
+	if(poll_count >= POLL_LIMIT)
+	{
+		DS2482_reset();
+	}
+}
+
+
+//-------------------------------------------------------------------------------------------------------------------
+// Send 8 bits of read communication to the 1-wire net and return the 
+// result 8 bits read from the 1-wire net.
+//Returns: 8 bits read from 1-wire net
+uint8_t OWReadByte(void)
+{
+	uint8_t status;
+	uint8_t data;
+	int poll_count = 0;
+	uint8_t *st; // pointer to status
+	st = &status;
+	// 1-wire write byte (Case C)
+	// S AD,0 [A] 1WRB [A] Sr AD,1 [A] [Status] A [Status] A\ Sr AD,0 [A] SRP [A] E1 [A] Sr AD,1 [A] DD A\ P
+	// 								   \--------/
+	//							Repeat until 1WB bit has changed to 0
+	// DD - read data
+	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd); // S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
+	i2c_master_write_byte(cmd, CMD_1WRB, ACK_CHECK_EN); //1WRB - [Acknowledged]
+	
+	i2c_master_start(cmd);// S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
+	
+	do
+    {
+      i2c_master_read_byte(cmd, st, ACK_VAL); //[byte - STATUS register] [Acknowledged]
+	  //printf("counter: %d\n", ++count);
+    }
+    while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT));//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
+
+    i2c_master_read_byte(cmd, st, NACK_VAL); //[byte - STATUS register] [NotAcknowledged]
+	
+	if(poll_count >= POLL_LIMIT)
+	{
+		DS2482_reset();
+		return FALSE;
+	}
+	
+	i2c_master_start(cmd); // S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
+	i2c_master_write_byte(cmd, CMD_SRP, ACK_CHECK_EN); //SRP - [Acknowledged]
+	i2c_master_write_byte(cmd, 0xE1, ACK_CHECK_EN); //SRP - [Acknowledged]
+	
+	
+	i2c_master_start(cmd);// S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
+	i2c_master_read_byte(cmd, &data, NACK_VAL); //[DD] notAcknowledged
+	i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+	switch(ret){
+			case ESP_OK:
+				printf("[OWReadByte()] - data = %d\n", data);
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[OWReadByte()] -  Parameter error \n");
+			case ESP_FAIL:
+				printf("[OWReadByte()] -  Sending command error, slave doesn't ACK the transfer \n");
+			case ESP_ERR_INVALID_STATE:
+				printf("[OWReadByte()] - I2C driver not installed or not in master mode \n");
+			case ESP_ERR_TIMEOUT:
+				printf("[OWReadByte()] - Operation timeout because the bus is busy \n");
+			default:
+				printf( "OWReadByte() hmmmmmmmmmmmmmmm\n" );
+		}
+	return data;
+}
+
+//----------------------------------------------------------------------------------------------------------
+// Send 8 bits of communication to the 1-wire net and return the
+// result 8 bits read from the 1-wire net. The parameter 'sendbyte'
+// least significant 8 bits are used and the least significant 8 bits
+// of the result are the return byte.
+// 'sendbyte' - 8 bits send (least significant byte)
+// Returns: 8 bits read from sendbyte
+uint8_t OWTouchByte(uint8_t sendbyte)
+{
+	if (sendbyte == 0xff)
+		return OWReadByte();
+	else
+	{
+		OWWriteByte(sendbyte);
+		return sendbyte;
+	}
+} 
+
+
+//-------------------------------------------------------------------------------------------------------------
+// The 'OWBlock' transfers a block of data to and from the 
+// 1-wire net. The result is returned in the same buffer.
+// 'tran_buf' - pointer to a block of uint8_t of length 'tran_len'
+//				that will be sent to the 1-wire net.
+// 'tran_len' - length in bytes to transfer
+void OWBlock(uint8_t *tran_buf, int tran_len)
+{
+	int i;
+	for (i=0; i < tran_len; i++)
+		tran_buf[i] = OWTouchByte(tran_buf[i]);
+}
+
+
+
 
 
 
