@@ -85,6 +85,8 @@
 #define STATUS_PPD 0x02
 #define STATUS_SD 0x04
 #define STATUS_1WB 0x01
+#define STATUS_TSB 0x40
+#define STATUS_DIR 0x80
 
 
 #define CONFIG_APU 0x01
@@ -96,6 +98,14 @@
 #define CMD_1WRB 0x96	//Command '1-Wire Read Byte'
 #define CMD_1WT 0x78	//Command '1-Wire Triplet'
 #define CMD_SRP 0xE1	//Command 'Set Read Pointer'
+
+#define SearchROM 0xF0	//The search command that all 1-Wire devices respond.
+#define ReadROM 0x33	
+#define SkipROM 0xCC
+#define MatchROM 0x55
+#define ConvertT 0x44
+
+
 
 
 #define TRUE 1
@@ -110,8 +120,12 @@ int cAPU;// Active pullup
 uint8_t short_detected;
 
 
-
-
+// Search state
+uint8_t ROM_NO[8];
+int LastDiscrepancy; //последнее несоответствие
+int LastFamilyDiscrepancy; //последнее несоответствие кода семьи
+int LastDeviceFlag;
+uint8_t crc8;
 
 
 
@@ -843,7 +857,7 @@ uint8_t OWTouchByte(uint8_t sendbyte)
 } 
 
 
-//-------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------
 // The 'OWBlock' transfers a block of data to and from the 
 // 1-wire net. The result is returned in the same buffer.
 // 'tran_buf' - pointer to a block of uint8_t of length 'tran_len'
@@ -857,6 +871,307 @@ void OWBlock(uint8_t *tran_buf, int tran_len)
 }
 
 
+//----------------------------------------------------------------------------------------------------------
+// Use the DS2482 help command '1-wire triplet' to perform one bit of a
+// 1-wire search.
+// This command does two read bits and one writte bit. The write bit
+// is either the default direction (all device have same bit) or in case of 
+// a discrepancy, the 'search_direction' parameter is used.
+// Returns - The DS2482 status byte result from the triplet command
+uint8_t DS2482_search_triplet(uint8_t search_direction)
+{
+	uint8_t status;
+	int poll_count = 0;
+	uint8_t *st; // pointer to status
+	st = &status;
+	
+	// 1-wire triplet (Case B)
+	// S AD,0 [A] 1WT [A] SS [A] Sr [A] AD,1 [A] [Staus] A [Status] A\ P
+	// 											 \--------/
+	//								 Repeat until 1WB bit has changed to 0
+	//SS indicates byte containing search direction bit value in msbit
+	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd); // S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
+	i2c_master_write_byte(cmd, CMD_1WT, ACK_CHECK_EN); //1WT - [Acknowledged]
+	i2c_master_write_byte(cmd, search_direction ? 0x80 : 0x00, ACK_CHECK_EN); //SS - [Acknowledged]
+	i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+	switch(ret){
+			case ESP_OK:
+				printf("[DS2482_search_triplet()] - CMD_1WT = OK\n");
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[DS2482_search_triplet()] - CMD_1WT Parameter error \n");
+			case ESP_FAIL:
+				printf("[DS2482_search_triplet()] - CMD_1WT Sending command error, slave doesn't ACK the transfer \n");
+			case ESP_ERR_INVALID_STATE:
+				printf("[DS2482_search_triplet()] - CMD_1WT I2C driver not installed or not in master mode \n");
+			case ESP_ERR_TIMEOUT:
+				printf("[DS2482_search_triplet()] - CMD_1WT Operation timeout because the bus is busy \n");
+			default:
+				printf( "DS2482_search_triplet() hmmmmmmmmmmmmmmm\n" );
+		}
+	cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);// S - start
+    i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
+	do
+    {
+      i2c_master_read_byte(cmd, st, ACK_VAL); //[byte - STATUS register] [Acknowledged]
+	  //printf("counter: %d\n", ++count);
+    }
+    while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT));//Repeat until 1WB bit has changed to 0 - getbits(tmp, 0, 1) - не проверяется!!!!!!!!!!!
+	i2c_master_read_byte(cmd, st, NACK_VAL); //[byte - STATUS register] [NotAcknowledged]
+    i2c_master_stop(cmd);
+    ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+    switch(ret){
+			case ESP_OK:
+				printf("[DS2482_search_triplet()] - *st = %d\n", *st);
+				printf("[DS2482_search_triplet()] - status = %d\n", status);
+				break;
+			case ESP_ERR_INVALID_ARG:
+				printf("[DS2482_search_triplet()] - Parameter error \n");
+			case ESP_FAIL:
+				printf("[DS2482_search_triplet()] - Sending command error, slave doesn't ACK the transfer \n");
+			case ESP_ERR_INVALID_STATE:
+				printf("[DS2482_search_triplet()] - I2C driver not installed or not in master mode \n");
+			case ESP_ERR_TIMEOUT:
+				printf("[DS2482_search_triplet()] - Operation timeout because the bus is busy \n");
+			default:
+				printf( "DS2482_search_triplet() hmmmmmmmmmmmmmmm\n" );
+		}
+		
+	if(poll_count >= POLL_LIMIT)
+	{
+		DS2482_reset();
+		return FALSE;
+	}
+	
+	return status;
+}
+
+
+
+
+
+// TEST BUILD
+static unsigned char crc_table[] = {
+        0, 94,188,226, 97, 63,221,131,194,156,126, 32,163,253, 31, 65,
+      157,195, 33,127,252,162, 64, 30, 95,  1,227,189, 62, 96,130,220,
+       35,125,159,193, 66, 28,254,160,225,191, 93,  3,128,222, 60, 98,
+      190,224,  2, 92,223,129, 99, 61,124, 34,192,158, 29, 67,161,255,
+       70, 24,250,164, 39,121,155,197,132,218, 56,102,229,187, 89,  7,
+      219,133,103, 57,186,228,  6, 88, 25, 71,165,251,120, 38,196,154,
+      101, 59,217,135,  4, 90,184,230,167,249, 27, 69,198,152,122, 36,
+      248,166, 68, 26,153,199, 37,123, 58,100,134,216, 91,  5,231,185,
+      140,210, 48,110,237,179, 81, 15, 78, 16,242,172, 47,113,147,205,
+       17, 79,173,243,112, 46,204,146,211,141,111, 49,178,236, 14, 80,
+      175,241, 19, 77,206,144,114, 44,109, 51,209,143, 12, 82,176,238,
+       50,108,142,208, 83, 13,239,177,240,174, 76, 18,145,207, 45,115,
+      202,148,118, 40,171,245, 23, 73,  8, 86,180,234,105, 55,213,139,
+       87,  9,235,181, 54,104,138,212,149,203, 41,119,244,170, 72, 22,
+      233,183, 85, 11,136,214, 52,106, 43,117,151,201, 74, 20,246,168,
+      116, 42,200,150, 21, 75,169,247,182,232, 10, 84,215,137,107, 53};
+
+//----------------------------------------------------------------------------------------------------
+// Calculate the CRC8 of the byte value provided with the current 
+// global 'crc8' value. 
+// Returns current global crc8 value
+uint8_t calc_crc8(uint8_t value)
+{
+	// See Application Note 27
+   
+	// TEST BUILD
+   crc8 = crc_table[crc8 ^ value];
+   return crc8;
+}
+
+
+
+
+
+
+
+
+
+
+//----------------------------------------------------------------------------------------------------------
+// The 'OWSearch' function does a general search. This function
+// continues from the previus search state. The search state can be 
+// reset by using the 'OWFirst' function.
+// This function contains one parameter 'alarm_only'.
+// When 'alarm_only' is TRUE (1) the find alarm command 0xEC
+// is sent instead of the normal search command 0xF0.
+// Using the find alarm command 0xEC will limit the search to only 
+// 1-wire devices that are in an 'alarm' state.
+// Return: TRUE(1): when a 1-wire device was found and its
+//					serial number placed in the global ROM
+//			FALSE(0): when no new device was found. Either the 
+//						last search was the last device or there 
+//						are no devices on the 1-wire net.
+uint8_t OWSearch()
+{
+	uint8_t id_bit;
+	uint8_t cmp_id_bit;
+	
+	uint8_t search_direction;
+	uint8_t status;
+	
+	// initialize for search
+	uint8_t id_bit_number = 1;
+	uint8_t last_zero = 0;
+	uint8_t rom_byte_number = 0;
+	uint8_t search_result = FALSE; // returned
+	uint8_t rom_byte_mask = 1;
+	
+	crc8 = 0;
+	
+	
+	
+	// if the last call was not the last one 
+	if (!LastDeviceFlag)
+	{
+		// 1-wire reset
+		if (!OWReset())
+		{
+			// reset the search
+			LastDiscrepancy = 0;
+			LastDeviceFlag = FALSE;
+			LastFamilyDiscrepancy = 0;
+			return FALSE;
+			
+		}
+		
+		// issue the search command
+		// выдать команду поиска
+		OWWriteByte(SearchROM); // 0xF0
+		
+		// loop to do the search
+		// Цикл поиска
+		do
+		{
+			if(id_bit_number < LastDiscrepancy)
+			{
+				if((ROM_NO[rom_byte_number] & rom_byte_mask) > 0)
+					search_direction = 1;
+				else
+					search_direction = 0;
+			}
+			else
+			{
+				// if equal to last pick 1, if not then pick 0
+				if(id_bit_number == LastDiscrepancy)
+					search_direction = 1;
+				else
+					search_direction = 0;
+			}
+			
+			
+			// Perform a triple operation on the ds2482 which will perform
+			// 2 read bits and 1 write bit
+			status = DS2482_search_triplet(search_direction);
+			
+			//check bit results in status byte
+			id_bit = ((status & STATUS_SBR) == STATUS_SBR);
+			cmp_id_bit = ((status & STATUS_TSB) == STATUS_TSB);
+			search_direction = ((status & STATUS_DIR) == STATUS_DIR) ? 1 : 0;
+			
+			// check for no devices on 1-wire
+			if((id_bit) && (cmp_id_bit))
+				break;
+			else
+			{
+				if((!id_bit) && (!cmp_id_bit) && (search_direction == 0))
+				{
+					last_zero = id_bit_number;
+					
+					// check for last discrepancy in family
+					if(last_zero < 9)
+						LastFamilyDiscrepancy = last_zero;
+				}
+				
+				// set or clear  the bit in the ROM byte rom_byte_number
+				// with mask rom_byte_mask
+				if(search_direction == 1)
+					ROM_NO[rom_byte_number] |= rom_byte_mask;
+				else
+					ROM_NO[rom_byte_number] &= ~rom_byte_mask;
+				
+				// increment the byte counter id_bit_number
+				// and shift the mask rom_byte_mask
+				id_bit_number++;
+				rom_byte_mask <<= 1;
+				
+				// if the mask is 0 then go to new SerialNum byte rom_byte_number
+				// and reset mask
+				if (rom_byte_mask == 0)
+				{
+					calc_crc8(ROM_NO[rom_byte_number]); // accumulate the CRC
+					rom_byte_number++;
+					rom_byte_mask = 1;
+				}
+			}
+		}
+		while(rom_byte_number < 8);  // loop until through all ROM byte 0-7
+		
+		// if the search was successful then
+		if(!((id_bit_number < 65) || (crc8 != 0)))
+		{
+			// search successful so set LastDiscrepancy, LastDeviceFlag
+			// search_result
+			LastDiscrepancy = last_zero;
+			
+			//check for last device
+			if(LastDiscrepancy == 0)
+				LastDeviceFlag = TRUE;
+			
+			search_result = TRUE;
+		}	
+	}
+	
+	// if no device found then reset counters so next
+	// 'search' will be like a first
+	
+	if(!search_result || (ROM_NO[0] == 0))
+	{
+		LastDiscrepancy = 0;
+		LastDeviceFlag = FALSE;
+		LastFamilyDiscrepancy = 0;
+		search_result = FALSE;
+	}
+	
+	return search_result;
+} 
+
+
+
+
+//-------------------------------------------------------------------------------------------------------------
+// Find the 'first' devices on the 1-wire network
+// Return TRUE: device found, ROM number in ROM_NO buffer
+//		  FALSE: no device present
+uint8_t OWFirst()
+{
+	// reset the serach state
+	LastDiscrepancy = 0;
+	LastDeviceFlag = FALSE;
+	LastFamilyDiscrepancy = 0;
+	
+	return OWSearch();
+}
+
+
+//-----------------------------------------------------------------------------------------------------------
+// Find the 'next' devices on the 1-wire network
+// Return TRUE: device found, ROM number in ROM_NO buffer
+//		  FALSE: device not found, end of search
+uint8_t OWNext()
+{
+	//leave the search state alone
+	return OWSearch();
+}
 
 
 
@@ -896,9 +1211,28 @@ static void ds2482_task(void* arg)
     uint8_t sensor_data_h, sensor_data_l;
 	*/
     int cnt = 0;
+	int count;
 	DS2482_detect();
 	vTaskDelay(1000 / portTICK_RATE_MS);
 	DS2482_detect();
+	
+	// find ALL devices
+    printf("\nFIND ALL\n");
+    count = 0;
+	int i;
+    uint8_t rslt = OWFirst();
+	while (rslt)
+	{
+		// print device found
+		for (i = 7; i >= 0; i--)
+			printf("%02X", ROM_NO[i]);
+		printf("  %d\n", ++count);
+
+		rslt = OWNext();
+	}
+	
+	
+	
     while (1) {
         printf("test cnt: %d\n", cnt++);
         vTaskDelay(1000 / portTICK_RATE_MS);
@@ -920,6 +1254,10 @@ static void ds2482_task(void* arg)
 
 void app_main()
 {
+	
+	
+	
+	
 	gpio_config_t io_conf;
 	//Настройки GPIO для релейного ВЫХОДа
     //disable interrupt - отключитли прерывания
