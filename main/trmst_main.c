@@ -10,7 +10,7 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 #include <stdio.h>
-#include "driver/i2c.h"
+
 #include "driver/gpio.h"
 
 #include "ssd1366.h"
@@ -67,65 +67,16 @@
 
 #define tag "SSD1306"
 
-#define DS2482_ADDR			               0x18             /*!< slave address for DS2482 bridge */
+
 #define ssd1306_ADDR                       0x3C             /*!< oled display slave address, you can set any 7bit value */
 
 
 
-#define WRITE_BIT                          I2C_MASTER_WRITE /*!< I2C master write */
-#define READ_BIT                           I2C_MASTER_READ  /*!< I2C master read */
-#define ACK_CHECK_EN                       0x1              /*!< I2C master will check ack from slave*/
-#define ACK_CHECK_DIS                      0x0              /*!< I2C master will not check ack from slave */
-#define ACK_VAL                            0x0              /*!< I2C ack value */
-#define NACK_VAL                           0x1              /*!< I2C nack value */
 
-#define POLL_LIMIT 24
-
-#define STATUS_SBR 0x20
-#define STATUS_PPD 0x02
-#define STATUS_SD 0x04
-#define STATUS_1WB 0x01
-#define STATUS_TSB 0x40
-#define STATUS_DIR 0x80
-
-
-#define CONFIG_APU 0x01
-#define CMD_DRST 0xF0	//command 'device reset'
-#define CMD_WCFG 0xD2	//Command 'Write Configuration'
-#define CMD_1WRS 0xB4	//command '1 wire reset'
-#define CMD_1WSB 0x87	//command '1 wire single bit'
-#define CMD_1WWB 0xA5	//Command '1-Wire Write Byte'
-#define CMD_1WRB 0x96	//Command '1-Wire Read Byte'
-#define CMD_1WT 0x78	//Command '1-Wire Triplet'
-#define CMD_SRP 0xE1	//Command 'Set Read Pointer'
-
-#define SearchROM 0xF0	//The search command that all 1-Wire devices respond.
 #define ReadROM 0x33	
 #define SkipROM 0xCC
 #define MatchROM 0x55
 #define ConvertT 0x44
-
-
-
-
-#define TRUE 1
-#define FALSE 0
-
-// DS2482 state
-unsigned char I2C_address;
-int c1WS;// 1-Wire speed
-int cSPU;// Strong pullup
-int cPPM;// Presence pulse masking
-int cAPU;// Active pullup
-uint8_t short_detected;
-
-
-// Search state
-uint8_t ROM_NO[8];
-int LastDiscrepancy; //последнее несоответствие
-int LastFamilyDiscrepancy; //последнее несоответствие кода семьи
-int LastDeviceFlag;
-uint8_t crc8;
 
 
 
@@ -175,241 +126,8 @@ static void ENC(void* arg)
     }
 }
 
-/* getbits: получает n бит, начиная с p-й позиции */
-uint8_t getbits(uint8_t x, int p, int n)
-{
-	return (x >> (p+1-n)) & ~(~0 << n);
-}
 
 
-
-
-
-//-------------------------DS2482-100------------------------------------
-// Perform a device reset on the DS2482
-//
-// Returns: TRUE if device was reset
-//          FALSE device not detected or failure to perform reset
-//
-static int DS2482_reset()
-{
-    // Device Reset
-	// S - start
-	// AD,0 - select DS2482 for Write Access
-	// [A] - Acknowledged
-	// DRST - Command 'Device Reset', F0h
-	// [A] - Acknowledged
-	// S - start
-	// AD,1 - select DS2482 for Read Access
-	// [A] - Acknowledged
-	// [SS] - SS status byte to read to verify state
-	// 	A\ - not Acknowledged
-	// P - STOP Condition
-    //   S AD,0 [A] DRST [A] Sr AD,1 [A] [SS] A\ P
-    //  [] indicates from slave
-    //  SS status byte to read to verify state
-	
-	uint8_t status;
-	
-	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-	i2c_master_start(cmd); // S - start
-	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
-	i2c_master_write_byte(cmd, CMD_DRST, ACK_CHECK_EN); //DRST - [Acknowledged]
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
-    i2c_cmd_link_delete(cmd);
-	
-	switch(ret){
-			case ESP_OK:
-				printf("[DS2482_reset()] - CMD_DRST = OK \n");
-				break;
-			case ESP_ERR_INVALID_ARG:
-				printf("[DS2482_reset()] - Parameter error \n");
-				return FALSE;
-			case ESP_FAIL:
-				printf("[DS2482_reset()] - Sending command error, slave doesn't ACK the transfer \n");
-				return FALSE;
-			case ESP_ERR_INVALID_STATE:
-				printf("[DS2482_reset()] - I2C driver not installed or not in master mode \n");
-				return FALSE;
-			case ESP_ERR_TIMEOUT:
-				printf("[DS2482_reset()] - Operation timeout because the bus is busy \n");
-				return FALSE;
-			default:
-				printf( "hmmmmmmmmmmmmmmm\n" );
-				return FALSE;
-		}
-		cmd = i2c_cmd_link_create();
-		i2c_master_start(cmd);// S - start
-		i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN);//AD,1 - [Acknowledged]
-		i2c_master_read_byte(cmd, &status, NACK_VAL); //[SS] notAcknowledged
-		i2c_master_stop(cmd);
-		ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
-		i2c_cmd_link_delete(cmd);
-		switch(ret){
-			case ESP_OK:
-				printf("[DS2482_reset()] - status = %d\n", status);
-				// check for failure due to incorrect read back of status
-				return ((status & 0xF7) == 0x10); //return TRUE;
-			case ESP_ERR_INVALID_ARG:
-				printf("[DS2482_reset()] - Parameter error \n");
-				return FALSE;
-			case ESP_FAIL:
-				printf("[DS2482_reset()] - Sending command error, slave doesn't ACK the transfer \n");
-				return FALSE;
-			case ESP_ERR_INVALID_STATE:
-				printf("[DS2482_reset()] - I2C driver not installed or not in master mode \n");
-				return FALSE;
-			case ESP_ERR_TIMEOUT:
-				printf("[DS2482_reset()] - Operation timeout because the bus is busy \n");
-				return FALSE;
-			default:
-				printf( "hmmmmmmmmmmmmmmm\n" );
-				return FALSE;
-		}
-}
-
-
-//--------------------------------------------------------------------------
-// Write the configuration register in the DS2482. The configuration
-// options are provided in the lower nibble of the provided config byte.
-// The uppper nibble in bitwise inverted when written to the DS2482.
-//
-// Returns:  TRUE: config written and response correct
-//           FALSE: response incorrect
-//
-static int DS2482_write_config(uint8_t config)
-{
-   // Write configuration (Case A)
-   //   S AD,0 [A] WCFG [A] CF [A] Sr AD,1 [A] [CF] A\ P
-   //  [] indicates from slave
-   //  CF configuration byte to write
-   
-   uint8_t read_config;
-   uint8_t tmp;
-   uint8_t reg_config;
-   tmp = config;
-   reg_config = config | (~tmp << 4);//is the one’s complement of the lower nibble
-   tmp = 0;
-   printf("reg_config = %d\n", reg_config);
-   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-   i2c_master_start(cmd); // S - start
-   i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0 - [Acknowledged]
-   i2c_master_write_byte(cmd, CMD_WCFG, ACK_CHECK_EN); //WCFG - [Acknowledged]
-   i2c_master_write_byte(cmd, reg_config, ACK_CHECK_EN); //CF - [Acknowledged]
-   i2c_master_stop(cmd);
-   esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
-   i2c_cmd_link_delete(cmd);
-   switch(ret){
-			case ESP_OK:
-				printf("[DS2482_write_config()] - CMD_WCFG = OK\n");
-				break;
-			case ESP_ERR_INVALID_ARG:
-				printf("[DS2482_write_config()] - CMD_WCFG Parameter error \n");
-				return FALSE;
-			case ESP_FAIL:
-				printf("[DS2482_write_config()] - CMD_WCFG Sending command error, slave doesn't ACK the transfer \n");
-				return FALSE;
-			case ESP_ERR_INVALID_STATE:
-				printf("[DS2482_write_config()] - CMD_WCFG I2C driver not installed or not in master mode \n");
-				return FALSE;
-			case ESP_ERR_TIMEOUT:
-				printf("[DS2482_write_config()] - CMD_WCFG Operation timeout because the bus is busy \n");
-				return FALSE;
-			default:
-				printf( "CMD_WCFG hmmmmmmmmmmmmmmm\n" );
-				return FALSE;
-		}
-	cmd = i2c_cmd_link_create();
-	i2c_master_start(cmd);// S - start
-	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1 - [Acknowledged]
-	i2c_master_read_byte(cmd, &read_config, NACK_VAL); //[CF] notAcknowledged
-	i2c_master_stop(cmd);
-	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
-	i2c_cmd_link_delete(cmd);
-	switch(ret){
-			case ESP_OK:
-				printf("[DS2482_write_config()] - CMD_WCFG = OK, read_config = %d\n", read_config);
-				tmp = getbits(reg_config, 3, 4);
-				printf("[DS2482_write_config()] - tmp = %d\n", tmp);
-				
-				if (tmp != read_config)
-				{
-				  // handle error
-				  printf("[DS2482_write_config()] - DS2482_reset()\n");
-				  DS2482_reset();
-				  return FALSE;
-				}
-				else if(tmp == read_config)
-				{
-					return TRUE;
-				}
-			case ESP_ERR_INVALID_ARG:
-				printf("[DS2482_write_config()] - CMD_WCFG Parameter error \n");
-				return FALSE;
-			case ESP_FAIL:
-				printf("[DS2482_write_config()] - CMD_WCFG Sending command error, slave doesn't ACK the transfer \n");
-				return FALSE;
-			case ESP_ERR_INVALID_STATE:
-				printf("[DS2482_write_config()] - CMD_WCFG I2C driver not installed or not in master mode \n");
-				return FALSE;
-			case ESP_ERR_TIMEOUT:
-				printf("[DS2482_write_config()] - CMD_WCFG Operation timeout because the bus is busy \n");
-				return FALSE;
-			default:
-				printf( "CMD_WCFG hmmmmmmmmmmmmmmm\n" );
-				return FALSE;
-		}
-	
-}
-
-
-//--------------------------------------------------------------------------
-// DS2428 Detect routine that sets the I2C address and then performs a
-// device reset followed by writing the configuration byte to default values:
-//   1-Wire speed (c1WS) = standard (0)
-//   Strong pullup (cSPU) = off (0)
-//   Presence pulse masking (cPPM) = off (0)
-//   Active pullup (cAPU) = on (CONFIG_APU = 0x01)
-//
-// Returns: TRUE if device was detected and written
-//          FALSE device not detected or failure to write configuration byte
-//
-int DS2482_detect()
-{
-   if (!DS2482_reset())
-   {
-	   printf("[DS2482_detect()] - ds2482-100 not detected or failure to perform reset\n");
-	   return FALSE; // выход из функции
-   }
-   else
-   {
-	   printf("[DS2482_detect()] - ds2482-100 was reset\n");
-	   //return TRUE; // выход из функции
-   }
-
-   // default configuration
-   c1WS = FALSE;
-   cSPU = FALSE;
-   cPPM = FALSE;
-   cAPU = 1;
-   // write the default configuration setup
-   //|~1WS = 1|~SPU = 1|1|~APU = 0|1WS = 0|SPU = 0|0|APU = 1| - Configuration Register DS2482-100 = 225(d), E1(h)
-   //When read the upper nibble is always 0h.
-   //When write register is the one’s complement of the lower nibble
-   if (!DS2482_write_config(c1WS | cSPU | cPPM | cAPU))
-   {
-	   printf("[DS2482_detect()] - ds2482-100 failure to write configuration byte\n");
-	   return FALSE;
-   }
-   else
-   {
-		printf("[DS2482_detect()] - ds2482-100 was written\n");
-   }
-   
-   return TRUE;
-   
-}
 
 //*********************DS2482 1-Wire Operations***********************************
 //OWReset
