@@ -24,14 +24,14 @@
 
 /* Masks STATUS register ds2482 */
 /* |DIR|TSB|SBR|RST|LL|SD|PPD|1WB| */
-#define STATUS_DIR			0x80			/*10000000b - Branch Direction taken*/
-#define STATUS_TSB			0x40			/*01000000b - Triplet second bit*/
-#define STATUS_SBR			0x20			/*00100000b - Single bit result*/
-#define STATUS_RST			0x10			/*00010000b - Device reset*/
-#define STATUS_LL			0x8				/*00001000b - Logic level*/
-#define STATUS_SD			0x4				/*00000100b - Short detected*/
-#define STATUS_PPD			0x2				/*00000010b - Presence pulse detected*/
-#define STATUS_1WB			0x1				/*00000001b - 1-wire busy*/
+#define STATUS_DIR			0x80			//10000000b - Branch Direction taken
+#define STATUS_TSB			0x40			//01000000b - Triplet second bit
+#define STATUS_SBR			0x20			//00100000b - Single bit result
+#define STATUS_RST			0x10			//00010000b - Device reset
+#define STATUS_LL			0x8				//00001000b - Logic level
+#define STATUS_SD			0x4				//00000100b - Short detected
+#define STATUS_PPD			0x2				//00000010b - Presence pulse detected
+#define STATUS_1WB			0x1				//00000001b - 1-wire busy
 
 #define CONFIG_APU			0x1
 
@@ -47,6 +47,7 @@
 
 
 #define SearchROM			0xF0			//the search command that all 1-wire devices respond.
+
 
 
 uint8_t crc_table[] = {
@@ -66,7 +67,26 @@ uint8_t crc_table[] = {
 	87, 9, 235, 181, 54, 104, 138, 212, 149, 203, 41, 119, 244, 170, 72, 22,
 	233, 183, 85, 11, 136, 214, 52, 106, 43, 117, 151, 201, 74, 20, 246, 168,
 	116, 42, 200, 150, 21, 75, 169, 247, 182, 232, 10, 84, 215, 137, 107, 53
-}
+};
+
+
+
+
+uint8_t calc_crc8(uint8_t);
+
+
+uint8_t getbits(uint8_t, int, int);
+
+
+
+
+
+
+
+
+
+
+
 
 
 
