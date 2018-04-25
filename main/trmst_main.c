@@ -42,12 +42,7 @@
 #define ESP_INTR_FLAG_DEFAULT 0
 
 
-#define I2C_MASTER_SCL_IO          19               /*!< gpio number for I2C master clock */
-#define I2C_MASTER_SDA_IO          18               /*!< gpio number for I2C master data  */
-#define I2C_MASTER_NUM             I2C_NUM_1        /*!< I2C port number for master dev */
-#define I2C_MASTER_TX_BUF_DISABLE  0                /*!< I2C master do not need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE  0                /*!< I2C master do not need buffer */
-#define I2C_MASTER_FREQ_HZ         100000           /*!< I2C master clock frequency */
+
 
 #define tag "SSD1306"
 
@@ -66,7 +61,13 @@ SemaphoreHandle_t print_mux = NULL;
 static xQueueHandle gpio_evt_queue = NULL;
 
 
-uint8_t ROM_NO[8];
+
+	/* Search state */
+extern uint8_t ROM_NO[8];
+extern uint8_t LastDiscrepancy;
+extern uint8_t LastFamilyDiscrepancy; 
+extern uint8_t LastDeviceFlag;
+extern uint8_t crc8;
 
 
 
@@ -142,17 +143,25 @@ static void i2c_master_init()
 static void ds2482_task(void* arg)
 {
     int cnt = 0;
-	int count;
 	DS2482_detect();
 	vTaskDelay(1000 / portTICK_RATE_MS);
 	DS2482_detect();
 	
 	// find ALL devices
     printf("\nFIND ALL\n");
-    count = 0;
+    int count = 0;
 	int i;
     uint8_t rslt = OWFirst();
-	while (rslt)
+	
+	
+	printf("rslt = %d\n", rslt);
+	printf("LastDeviceFlag = %d\n", LastDeviceFlag);
+	printf("LastDiscrepancy = %d\n", LastDiscrepancy);
+	printf("LastFamilyDiscrepancy = %d\n", LastFamilyDiscrepancy);
+
+	
+	
+	while(rslt)
 	{
 		// print device found
 		for (i = 7; i >= 0; i--)
@@ -161,6 +170,7 @@ static void ds2482_task(void* arg)
 
 		rslt = OWNext();
 	}
+	
 	
 	
 	
@@ -175,7 +185,7 @@ static void ds2482_task(void* arg)
 		{
 			printf("1 wire device not detected\n");
 		}
-		vTaskDelay(3000 / portTICK_RATE_MS);
+		vTaskDelay(1000 / portTICK_RATE_MS);
     }
 }
 
@@ -185,6 +195,9 @@ static void ds2482_task(void* arg)
 
 void app_main()
 {
+	
+	
+
 	gpio_config_t io_conf;
 	//Настройки GPIO для релейного ВЫХОДа
     //disable interrupt - отключитли прерывания
@@ -242,6 +255,7 @@ void app_main()
     //print_mux = xSemaphoreCreateMutex();
     
     i2c_master_init();
+
     xTaskCreate(ds2482_task, "ds2482_task", 1024 * 2, (void* ) 1, 10, NULL);
 
 }

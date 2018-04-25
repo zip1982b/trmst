@@ -9,14 +9,32 @@ uint8_t cAPU; //Active pullup
 uint8_t short_detected; //short detected on 1-wire net
 
 
-/* Search state */
-extern uint8_t ROM_NO[8];
-extern uint8_t LastDiscrepancy;
-extern uint8_t LastFamilyDiscrepancy; 
-extern uint8_t LastDeviceFlag;
-extern uint8_t crc8;
+uint8_t ROM_NO[8];
+uint8_t LastDiscrepancy;
+uint8_t LastFamilyDiscrepancy; 
+uint8_t LastDeviceFlag;
+uint8_t crc8;
 
 
+
+uint8_t crc_tbl[] = {
+	0, 94, 188, 226, 97, 63, 221, 131, 194, 156, 126, 32, 163, 253, 31, 65,
+	157, 195, 33, 127, 252, 162, 64, 30, 95, 1, 227, 189, 62, 96, 130, 220,
+	35, 125, 159, 193, 66, 28, 254, 160, 225, 191, 93, 3, 128, 222, 60, 98,
+	190, 224, 2, 92, 223, 129, 99, 61, 124, 34, 192, 158, 29, 67, 161, 255,
+	70, 24, 250, 164, 39, 121, 155, 197, 132, 218, 56, 102, 229, 187, 89, 7,
+	219, 133, 103, 57, 186, 228, 6, 88, 25, 71, 165, 251, 120, 38, 196, 154,
+	101, 59, 217, 135, 4, 90, 184, 230, 167, 249, 27, 69, 198, 152, 122, 36,
+	248, 166, 68, 26, 153, 199, 37, 123, 58, 100, 134, 216, 91, 5, 231, 185,
+	140, 210, 48, 110, 237, 179, 81, 15, 78, 16, 242, 172, 47, 113, 147, 205,
+	17, 79, 173, 243, 112, 46, 204, 146, 211, 141, 111, 49, 178, 236, 14, 80,
+	175, 241, 19, 77, 206, 144, 114, 44, 109, 51, 209, 143, 12, 82, 176, 238,
+	50, 108, 142, 208, 83, 13, 239, 177, 240, 174, 76, 18, 145, 207, 45, 115,
+	202, 148, 118, 40, 171, 245, 23, 73, 8, 86, 180, 234, 105, 55, 213, 139,
+	87, 9, 235, 181, 54, 104, 138, 212, 149, 203, 41, 119, 244, 170, 72, 22,
+	233, 183, 85, 11, 136, 214, 52, 106, 43, 117, 151, 201, 74, 20, 246, 168,
+	116, 42, 200, 150, 21, 75, 169, 247, 182, 232, 10, 84, 215, 137, 107, 53
+};
 
 
 
@@ -37,7 +55,7 @@ uint8_t getbits(uint8_t x, int p, int n)
 */
 uint8_t calc_crc8(uint8_t value)
 {
-	crc8 = crc_table[crc8 ^ value];
+	crc8 = crc_tbl[crc8 ^ value];
 	return crc8;
 }
 
@@ -79,7 +97,7 @@ uint8_t DS2482_reset(void)
 	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0  - [A]
 	i2c_master_write_byte(cmd, CMD_DRST, ACK_CHECK_EN); //DRST - [A]
 	i2c_master_stop(cmd); // P
-	esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -106,7 +124,7 @@ uint8_t DS2482_reset(void)
 	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1  - [A]
 	i2c_master_read_byte(cmd, &status, NACK_VAL); // [SS] - notA
 	i2c_master_stop(cmd); // P
-	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -154,7 +172,7 @@ uint8_t DS2482_write_config(uint8_t config)
 	i2c_master_write_byte(cmd, CMD_WCFG, ACK_CHECK_EN); //WCFG - [A]
 	i2c_master_write_byte(cmd, reg_config, ACK_CHECK_EN); //CF - [A]
 	i2c_master_stop(cmd); // P
-	esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -181,7 +199,7 @@ uint8_t DS2482_write_config(uint8_t config)
 	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1  - [A]
 	i2c_master_read_byte(cmd, &read_config, NACK_VAL); // [CF] - notA
 	i2c_master_stop(cmd); // P
-	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -272,7 +290,7 @@ uint8_t OWReset(void)
 	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0  - [A]
 	i2c_master_write_byte(cmd, CMD_1WRS, ACK_CHECK_EN); //1WRS - [A]
 	i2c_master_stop(cmd); // P
-	esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -294,7 +312,7 @@ uint8_t OWReset(void)
 			printf("[OWReset()] - default block");
 			return 0;
 	}
-	cmd = i2c_cmd_link_create();
+	cmd = i2c_cmd_link_create(); 
 	i2c_master_start(cmd); //S
 	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | READ_BIT, ACK_CHECK_EN); //AD,1  - [A]
 	do
@@ -304,31 +322,30 @@ uint8_t OWReset(void)
 	while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT)); //Repeat untill 1WB bit has changed to 0
 	i2c_master_read_byte(cmd, st, NACK_VAL); //[Status] notA
 	i2c_master_stop(cmd); // P
-	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
 			if(*st & STATUS_PPD)
 			{
-				printf("[OWReset()] - PPD = %d \n", PPD);
 				PPD = 1;
 			}
 			else
 			{
 				PPD = 0;
-				printf("[OWReset()] - PPD = %d \n", PPD);
 			}
 			
 			if(*st & STATUS_SD)
 			{
-				printf("[OWReset()] - SD = %d \n", short_detected);
 				short_detected = 1;
+				printf("[OWReset()] - SD = %d \n", short_detected);
 			}
 			else
 			{
 				short_detected = 0;
 				printf("[OWReset()] - SD = %d \n", short_detected);
 			}
+			break;
 		case ESP_ERR_INVALID_ARG:
 			printf("[OWReset()] - Parameter error (2) \n");
 			return 0;
@@ -381,7 +398,7 @@ uint8_t OWTouchBit(uint8_t sendbit)
 	i2c_master_write_byte(cmd, CMD_1WSB, ACK_CHECK_EN); //1WSB - [A]
 	i2c_master_write_byte(cmd, sendbit ? 0x80 : 0x00, ACK_CHECK_EN); //BB - [A]
 	i2c_master_stop(cmd); // P
-	esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -413,7 +430,7 @@ uint8_t OWTouchBit(uint8_t sendbit)
 	while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT)); //Repeat until 1WB bit has changed to 0
 	i2c_master_read_byte(cmd, st, NACK_VAL); //[Status] notA
 	i2c_master_stop(cmd); // P
-	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -459,7 +476,7 @@ void OWWriteBit(uint8_t sendbit)
 
 uint8_t OWReadBit(void)
 {
-	return OWTuchBit(0x01);
+	return OWTouchBit(0x01);
 }
 
 
@@ -485,7 +502,7 @@ void OWWriteByte(uint8_t sendbyte)
 	i2c_master_write_byte(cmd, CMD_1WWB, ACK_CHECK_EN); //1WWB - [A]
 	i2c_master_write_byte(cmd, sendbyte, ACK_CHECK_EN); //DD - [A]
 	i2c_master_stop(cmd); // P
-	esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -512,7 +529,7 @@ void OWWriteByte(uint8_t sendbyte)
 	while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT)); //Repeat until 1WB bit has changed to 0
 	i2c_master_read_byte(cmd, st, NACK_VAL); //[Status] notA
 	i2c_master_stop(cmd); // P
-	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -588,7 +605,7 @@ uint8_t OWReadByte(void)
 	i2c_master_read_byte(cmd, &data, NACK_VAL); //[DD] notA
 	
 	i2c_master_stop(cmd); // P
-	esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -637,7 +654,7 @@ void OWBlock(uint8_t *tran_buf, int tran_len)
 {
 	int i;
 	for(i=0; i < tran_len; i++)
-		tran_buf[i] = OWTouchByte(tran_buf);
+		tran_buf[i] = OWTouchByte(tran_buf[i]);
 }
 
 
@@ -661,7 +678,7 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 	i2c_master_write_byte(cmd, CMD_1WT, ACK_CHECK_EN); //1WT - [A]
 	i2c_master_write_byte(cmd, search_direction ? 0x80 : 0x00, ACK_CHECK_EN); //SS - [A]
 	i2c_master_stop(cmd); // P
-	esp_err_t ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -688,7 +705,7 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 	while ((*st & STATUS_1WB) && (poll_count++ < POLL_LIMIT)); //Repeat until 1WB bit has changed to 0
 	i2c_master_read_byte(cmd, st, NACK_VAL); //[Status] notA
 	i2c_master_stop(cmd); // P
-	ret = i2c_master_cmd_begin(I2C_EXAMPLE_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+	ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
@@ -715,6 +732,35 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 }
 
 
+
+
+
+// Find the 'first' devices on the 1-wire network
+uint8_t OWFirst(void)
+{
+	//reset the search state
+	LastDiscrepancy = 0;
+	LastDeviceFlag = 0;
+	LastFamilyDiscrepancy = 0;
+	
+	return OWSearch();
+}
+
+
+
+//Find the 'next' devices on the 1-wire network
+uint8_t OWNext(void)
+{
+	//leave the search state alone
+	return OWSearch();
+}
+
+
+
+
+
+
+
 uint8_t OWSearch(void)
 {
 	uint8_t id_bit;
@@ -727,7 +773,7 @@ uint8_t OWSearch(void)
 	uint8_t id_bit_number = 1;
 	uint8_t last_zero = 0;
 	uint8_t rom_byte_number = 0;
-	uint8_t search_result = FALSE; // returned
+	uint8_t search_result = 0; // returned
 	uint8_t rom_byte_mask = 1;
 	
 	crc8 = 0;
@@ -742,9 +788,9 @@ uint8_t OWSearch(void)
 		{
 			// reset the search
 			LastDiscrepancy = 0;
-			LastDeviceFlag = FALSE;
+			LastDeviceFlag = 0;
 			LastFamilyDiscrepancy = 0;
-			return FALSE;
+			return 0;
 			
 		}
 		
@@ -829,9 +875,9 @@ uint8_t OWSearch(void)
 			
 			//check for last device
 			if(LastDiscrepancy == 0)
-				LastDeviceFlag = TRUE;
+				LastDeviceFlag = 1;
 			
-			search_result = TRUE;
+			search_result = 1;
 		}	
 	}
 	
@@ -841,75 +887,13 @@ uint8_t OWSearch(void)
 	if(!search_result || (ROM_NO[0] == 0))
 	{
 		LastDiscrepancy = 0;
-		LastDeviceFlag = FALSE;
+		LastDeviceFlag = 0;
 		LastFamilyDiscrepancy = 0;
-		search_result = FALSE;
+		search_result = 0;
 	}
 	
 	return search_result;
 } 
-
-
-
-// Find the 'first' devices on the 1-wire network
-uint8_t OWFirst(void)
-{
-	//reset the search state
-	LastDiscrepancy = 0;
-	LastDeviceFlag = 0;
-	LastFamilyDiscrepancy = 0;
-	
-	return OWSearch();
-}
-
-
-
-//Find the 'next' devices on the 1-wire network
-uint8_t OWNext(void)
-{
-	//leave the search state alone
-	return OWSearch();
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
