@@ -1,21 +1,12 @@
 #include <stdio.h>
 #include "ds2482.h"
 
-/* DS2482 state */
-uint8_t c1WS; //1-wire speed
-uint8_t cSPU; //Strong pullup
-uint8_t cPPM; //Precense pulse masking
-uint8_t cAPU; //Active pullup
+
 uint8_t short_detected; //short detected on 1-wire net
 
 
-uint8_t ROM_NO[8];
-uint8_t LastDiscrepancy;
-uint8_t LastFamilyDiscrepancy; 
-uint8_t LastDeviceFlag;
+
 uint8_t crc8;
-
-
 
 uint8_t crc_tbl[] = {
 	0, 94, 188, 226, 97, 63, 221, 131, 194, 156, 126, 32, 163, 253, 31, 65,
@@ -239,6 +230,12 @@ uint8_t DS2482_write_config(uint8_t config)
 
 uint8_t DS2482_detect()
 {
+	/* DS2482 default state */
+	uint8_t c1WS = 0; //1-wire speed
+	uint8_t cSPU = 0; //Strong pullup
+	uint8_t cPPM = 0; //Precense pulse masking
+	uint8_t cAPU = 1; //Active pullup
+	
 	if(!DS2482_reset())
 	{
 		printf("[DS2482_detect()] - ds2482 not detected or failure to perform reset \n");
@@ -250,11 +247,6 @@ uint8_t DS2482_detect()
 	}
 	
 	// default configuration
-	c1WS = 0;
-	cSPU = 0;
-	cPPM = 0;
-	cAPU = 1;
-	
 	if(!DS2482_write_config(c1WS | cSPU | cPPM |cAPU))
 	{
 		printf("[DS2482_detect()] - ds2482 failure to write configuration byte \n");
@@ -735,33 +727,13 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 
 
 
-// Find the 'first' devices on the 1-wire network
-uint8_t OWFirst(void)
-{
-	//reset the search state
-	LastDiscrepancy = 0;
-	LastDeviceFlag = 0;
-	LastFamilyDiscrepancy = 0;
-	
-	return OWSearch();
-}
-
-
-
-//Find the 'next' devices on the 1-wire network
-uint8_t OWNext(void)
-{
-	//leave the search state alone
-	return OWSearch();
-}
 
 
 
 
 
 
-
-uint8_t OWSearch(void)
+uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf, uint8_t *ROM_NO)
 {
 	uint8_t id_bit;
 	uint8_t cmp_id_bit;
@@ -773,7 +745,7 @@ uint8_t OWSearch(void)
 	uint8_t id_bit_number = 1;
 	uint8_t last_zero = 0;
 	uint8_t rom_byte_number = 0;
-	uint8_t search_result = 0; // returned
+	uint8_t search_result = 0; //False or True
 	uint8_t rom_byte_mask = 1;
 	
 	crc8 = 0;
@@ -781,15 +753,15 @@ uint8_t OWSearch(void)
 	
 	
 	// if the last call was not the last one 
-	if (!LastDeviceFlag)
+	if (!*ldf)
 	{
 		// 1-wire reset
 		if (!OWReset())
 		{
 			// reset the search
-			LastDiscrepancy = 0;
-			LastDeviceFlag = 0;
-			LastFamilyDiscrepancy = 0;
+			*ld = 0;
+			*ldf = 0;
+			*lfd = 0;
 			return 0;
 			
 		}
@@ -802,7 +774,7 @@ uint8_t OWSearch(void)
 		// Цикл поиска
 		do
 		{
-			if(id_bit_number < LastDiscrepancy)
+			if(id_bit_number < *ld)
 			{
 				if((ROM_NO[rom_byte_number] & rom_byte_mask) > 0)
 					search_direction = 1;
@@ -812,7 +784,7 @@ uint8_t OWSearch(void)
 			else
 			{
 				// if equal to last pick 1, if not then pick 0
-				if(id_bit_number == LastDiscrepancy)
+				if(id_bit_number == *ld)
 					search_direction = 1;
 				else
 					search_direction = 0;
@@ -839,7 +811,7 @@ uint8_t OWSearch(void)
 					
 					// check for last discrepancy in family
 					if(last_zero < 9)
-						LastFamilyDiscrepancy = last_zero;
+						*lfd = last_zero;
 				}
 				
 				// set or clear  the bit in the ROM byte rom_byte_number
@@ -871,11 +843,11 @@ uint8_t OWSearch(void)
 		{
 			// search successful so set LastDiscrepancy, LastDeviceFlag
 			// search_result
-			LastDiscrepancy = last_zero;
+			*ld = last_zero;
 			
 			//check for last device
-			if(LastDiscrepancy == 0)
-				LastDeviceFlag = 1;
+			if(*ld == 0)
+				*ldf = 1;
 			
 			search_result = 1;
 		}	
@@ -886,13 +858,13 @@ uint8_t OWSearch(void)
 	
 	if(!search_result || (ROM_NO[0] == 0))
 	{
-		LastDiscrepancy = 0;
-		LastDeviceFlag = 0;
-		LastFamilyDiscrepancy = 0;
+		*ld = 0;
+		*ldf = 0;
+		*lfd = 0;
 		search_result = 0;
 	}
 	
-	return search_result;
+	return search_result; //False or True
 } 
 
 

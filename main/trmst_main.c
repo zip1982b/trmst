@@ -59,15 +59,23 @@
 
 SemaphoreHandle_t print_mux = NULL;
 static xQueueHandle gpio_evt_queue = NULL;
+portBASE_TYPE xStatusReadTemp; // status task create
+portBASE_TYPE xStatusFindDevices;
+//portBASE_TYPE xStatusReadTempRoom2; // status task create
+xTaskHandle xRead_Temp_Handle; // identification Read Temp task
+//xTaskHandle xRead_TempRoom2_Handle; // identification Read Temp task
+xTaskHandle xFindDev_Handle; // identification Read Temp task
 
 
+	
 
-	/* Search state */
-extern uint8_t ROM_NO[8];
-extern uint8_t LastDiscrepancy;
-extern uint8_t LastFamilyDiscrepancy; 
-extern uint8_t LastDeviceFlag;
+extern uint8_t short_detected; //short detected on 1-wire net
 extern uint8_t crc8;
+extern uint8_t crc_tbl[];
+
+
+
+
 
 
 
@@ -137,57 +145,90 @@ static void i2c_master_init()
 
 
 
-
-
-
-static void ds2482_task(void* arg)
+static void vFindDevices(void* arg)
 {
-    int cnt = 0;
-	DS2482_detect();
-	vTaskDelay(1000 / portTICK_RATE_MS);
-	DS2482_detect();
+	uint8_t LastDiscrepancy;
+	uint8_t LastFamilyDiscrepancy; 
+	uint8_t LastDeviceFlag;
 	
-	// find ALL devices
-    printf("\nFIND ALL\n");
-    int count = 0;
-	int i;
-    uint8_t rslt = OWFirst();
+	uint8_t ROM_NO[8];
+	uint8_t *pROM_NO;
+	pROM_NO = ROM_NO;
 	
 	
-	printf("rslt = %d\n", rslt);
-	printf("LastDeviceFlag = %d\n", LastDeviceFlag);
-	printf("LastDiscrepancy = %d\n", LastDiscrepancy);
-	printf("LastFamilyDiscrepancy = %d\n", LastFamilyDiscrepancy);
-
+	/*
+	uint8_t *LD;
+	uint8_t *LFD;
+	uint8_t *LDF;
 	
+	LD = &LastDiscrepancy;
+	LFD = &LastFamilyDiscrepancy;
+	LDF = &LastDeviceFlag;
 	
-	while(rslt)
+	*/
+	
+	vTaskDelay(3000 / portTICK_RATE_MS);
+	if(DS2482_detect())
 	{
-		// print device found
-		for (i = 7; i >= 0; i--)
-			printf("%02X", ROM_NO[i]);
-		printf("  %d\n", ++count);
-
-		rslt = OWNext();
+		/*ds2482 i2c/1-wire bridge detected*/
+		if(OWReset())
+		{
+			/*1-wire device detected*/
+			// find address ALL devices
+			printf("\nFIND ALL ******** \n");
+			int count = 0;
+			int i;
+			LastDiscrepancy = 0;
+			LastDeviceFlag = 0;
+			LastFamilyDiscrepancy = 0;
+			uint8_t rslt = OWSearch(&LastDiscrepancy, &LastFamilyDiscrepancy, &LastDeviceFlag, pROM_NO);
+			while(rslt)
+			{
+				// print device found
+				for (i = 7; i >= 0; i--)
+					printf("%02X", ROM_NO[i]);
+				printf("  %d\n", ++count);
+				
+				rslt = OWSearch(&LastDiscrepancy, &LastFamilyDiscrepancy, &LastDeviceFlag,  pROM_NO);
+			}
+			
+			
+			
+		}
+		else
+		{
+			/*1-wire device not detected*/
+		}
+	}
+	else
+	{
+		/*ds2482 i2c/1-wire bridge not detected*/
+		
 	}
 	
+	
+
+	vTaskDelete(NULL);
+}
+
+
+
+
+
+static void vRead_Temp(void* arg)
+{
 	
 	
 	
     while (1) {
-        printf("test cnt: %d\n", cnt++);
-        vTaskDelay(1000 / portTICK_RATE_MS);
-		if(OWReset())
-		{
-			printf("1 wire device detected\n");
-		}
-		else
-		{
-			printf("1 wire device not detected\n");
-		}
+		/* read temperature and send to queue*/
+       
+		
 		vTaskDelay(1000 / portTICK_RATE_MS);
     }
+	vTaskDelete(NULL);
 }
+
 
 
 
@@ -195,9 +236,6 @@ static void ds2482_task(void* arg)
 
 void app_main()
 {
-	
-	
-
 	gpio_config_t io_conf;
 	//Настройки GPIO для релейного ВЫХОДа
     //disable interrupt - отключитли прерывания
@@ -255,8 +293,29 @@ void app_main()
     //print_mux = xSemaphoreCreateMutex();
     
     i2c_master_init();
-
-    xTaskCreate(ds2482_task, "ds2482_task", 1024 * 2, (void* ) 1, 10, NULL);
+	
+	xStatusFindDevices = xTaskCreate(vFindDevices, "vFindDevices", 1024 * 2, NULL, 10, &xFindDev_Handle);
+	if(xStatusFindDevices == pdPASS)
+		printf("Task vRead_Temp is created!\n");
+	else
+		printf("Task vRead_Temp is not created\n");
+	/*
+	if(Devices)
+	{
+		xStatusReadTemp = xTaskCreate(vRead_Temp, "vRead_Temp", 1024 * 2, NULL, 10, &xRead_Temp_Handle);
+		if(xStatusReadTemp == pdPASS)
+			printf("Task vRead_Temp is created!\n");
+		else
+			printf("Task vRead_Temp is not created\n");
+		*/
+		/*
+		xStatusReadTempRoom2 = xTaskCreate(vRead_TempRoom2, "vRead_TempRoom2", 1024 * 2, NULL, 10, &xRead_TempRoom2_Handle);
+		if(xStatusReadTempRoom2 == pdPASS)
+			printf("Task vRead_Temp is created!\n");
+		else
+			printf("Task vRead_Temp is not created\n");
+		
+	}*/
 
 }
 
