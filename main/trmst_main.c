@@ -177,15 +177,16 @@ static void vReadTemp(void* arg)
 					}
 					printf("\n count = %d\n", count);
 				}
-				else
-					printf("1-wire device not find\n");
+				else{
+					printf("1-wire device end find\n");
+					free(pROM_NO[i]);
+				}
 				i++;
 			}
 			while(i <= 4 && rslt);
 		}
 		else
 			printf("1-wire device not detected\n");
-		
 	}
 	else
 		printf("ds2482 i2c/1-wire bridge not detected\n");
