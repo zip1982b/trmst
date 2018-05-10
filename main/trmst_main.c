@@ -156,6 +156,7 @@ static void vReadTemp(void* arg)
 	uint8_t *pROM_NO[4];
 	int j, i = 0;
 	int count = 0;
+	vTaskDelay(3000 / portTICK_RATE_MS);
 	if(DS2482_detect())
 	{
 		/*ds2482 i2c/1-wire bridge detected*/
