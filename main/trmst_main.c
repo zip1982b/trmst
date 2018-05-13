@@ -42,12 +42,6 @@
 #define ESP_INTR_FLAG_DEFAULT 0
 
 
-#define I2C_MASTER_SCL_IO          19               /*!< gpio number for I2C master clock */
-#define I2C_MASTER_SDA_IO          18               /*!< gpio number for I2C master data  */
-#define I2C_MASTER_NUM             I2C_NUM_1        /*!< I2C port number for master dev */
-#define I2C_MASTER_TX_BUF_DISABLE  0                /*!< I2C master do not need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE  0                /*!< I2C master do not need buffer */
-#define I2C_MASTER_FREQ_HZ         100000           /*!< I2C master clock frequency */
 
 #define tag "SSD1306"
 
@@ -66,7 +60,12 @@ SemaphoreHandle_t print_mux = NULL;
 static xQueueHandle gpio_evt_queue = NULL;
 
 
-uint8_t ROM_NO[8];
+/* Search state */
+extern uint8_t ROM_NO[8];
+extern uint8_t LastDiscrepancy;
+extern uint8_t LastFamilyDiscrepancy; 
+extern uint8_t LastDeviceFlag;
+extern uint8_t crc8;
 
 
 
