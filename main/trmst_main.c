@@ -149,12 +149,13 @@ static void vReadTemp(void* arg)
 {
 	/* Find Devices */
 	uint8_t rslt = 0;
-	uint8_t LastDiscrepancy = 0;
-	uint8_t LastFamilyDiscrepancy = 0; 
-	uint8_t LastDeviceFlag = 0;
+	static uint8_t LastDiscrepancy = 0;
+	static uint8_t LastFamilyDiscrepancy = 0; 
+	static uint8_t LastDeviceFlag = 0;
 	
 	uint8_t *pROM_NO[4];
-	int j, i = 0;
+	uint8_t i = 0;
+	int j;
 	int count = 0;
 	vTaskDelay(3000 / portTICK_RATE_MS);
 	if(DS2482_detect())
@@ -166,7 +167,12 @@ static void vReadTemp(void* arg)
 			// find address ALL devices
 			printf("\nFIND ALL ******** \n");
 			do{
+				printf(" i = %d\n", i);
 				pROM_NO[i] = (uint8_t*) malloc(8); //memory for address
+				printf("address memory pROM_NO = %p\n", pROM_NO[i]);
+				printf("LastDiscrepancy value = %d\n", LastDiscrepancy);
+				printf("LastFamilyDiscrepancy value = %d\n", LastFamilyDiscrepancy);
+				printf("LastDeviceFlag value = %d\n", LastDeviceFlag);
 				rslt = OWSearch(&LastDiscrepancy, &LastFamilyDiscrepancy, &LastDeviceFlag, pROM_NO[i]);
 				if(rslt)
 				{
@@ -182,8 +188,10 @@ static void vReadTemp(void* arg)
 					free(pROM_NO[i]);
 				}
 				i++;
+				vTaskDelay(1000 / portTICK_RATE_MS);
 			}
-			while(i <= 4 && rslt);
+			while(rslt);			//i <= 4 &&
+			printf(" wc i = %d\n", i);
 		}
 		else
 			printf("1-wire device not detected\n");
@@ -288,8 +296,5 @@ void app_main()
 			printf("Task vReadTemp is created!\n");
 		else
 			printf("Task vReadTemp is not created\n");
-	
-
-
 }
 

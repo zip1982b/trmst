@@ -713,6 +713,7 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 	
 	if(poll_count >= POLL_LIMIT)
 	{
+		printf("[DS2482_search_triplet()] - POLL_LIMIT");
 		DS2482_reset();
 		return 0;
 	}
@@ -731,22 +732,28 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 
 uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf, uint8_t *ROM_NO)
 {
-	uint8_t id_bit;
-	uint8_t cmp_id_bit;
+	int id_bit; // 
+	int cmp_id_bit; // the complement of the id_bit. This bit is AND of the complement of all of the id_bit_number
+					// bits of the devices that are still participating in the search. 
 	
-	uint8_t search_direction;
+	uint8_t search_direction; // бит, указывающий направление поиска.
+							  // Все устройства с этим битом остаются в поиске, а остальные переходят в состояние ожидания для 1-проводного сброса.
+
 	uint8_t status;
 	
 	// initialize for search
-	uint8_t id_bit_number = 1;
-	uint8_t last_zero = 0;
-	uint8_t rom_byte_number = 0;
+	int id_bit_number = 1; // бит ROM с номером 1 - 64, который в настоящее время выполняется.
+	int last_zero = 0; // разрядная позиция последнего нуля, записанная там, где имело место несоответствие
+	int rom_byte_number = 0; // 
 	uint8_t search_result = 0; //False or True
 	uint8_t rom_byte_mask = 1;
 	
 	crc8 = 0;
 	
-	
+	printf("address memory ROM_NO = %p\n", ROM_NO);
+	printf("*ld value = %d\n", *ld);
+	printf("*lfd value = %d\n", *lfd);
+	printf("*ldf value = %d\n", *ldf);
 	
 	// if the last call was not the last one 
 	if (!*ldf)
@@ -794,7 +801,7 @@ uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf, uint8_t *ROM_NO)
 			//check bit results in status byte
 			id_bit = ((status & STATUS_SBR) == STATUS_SBR);
 			cmp_id_bit = ((status & STATUS_TSB) == STATUS_TSB);
-			search_direction = ((status & STATUS_DIR) == STATUS_DIR) ? 1 : 0;
+			search_direction = ((status & STATUS_DIR) == STATUS_DIR) ? (uint8_t)1 : (uint8_t)0;
 			
 			// check for no devices on 1-wire
 			if((id_bit) && (cmp_id_bit))
@@ -804,6 +811,7 @@ uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf, uint8_t *ROM_NO)
 				if((!id_bit) && (!cmp_id_bit) && (search_direction == 0))
 				{
 					last_zero = id_bit_number;
+					printf("id_bit_number = %d\n", id_bit_number);
 					
 					// check for last discrepancy in family
 					if(last_zero < 9)
@@ -839,6 +847,7 @@ uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf, uint8_t *ROM_NO)
 		{
 			// search successful so set LastDiscrepancy, LastDeviceFlag
 			// search_result
+			printf("last_zero = %d\n", last_zero);
 			*ld = last_zero;
 			
 			//check for last device

@@ -28,7 +28,7 @@
 #define ACK_VAL				0x0				 /* I2C ack value */
 #define NACK_VAL			0x1				 /* I2C nack value */
 
-#define POLL_LIMIT			24
+#define POLL_LIMIT			30
 
 /* Masks STATUS register ds2482 */
 /* |DIR|TSB|SBR|RST|LL|SD|PPD|1WB| */
