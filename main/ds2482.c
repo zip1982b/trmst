@@ -3,6 +3,7 @@
 
 
 uint8_t short_detected; //short detected on 1-wire net
+uint8_t ROM_NO[8];
 uint8_t crc8;
 uint8_t crc_tbl[] = {
 	0, 94, 188, 226, 97, 63, 221, 131, 194, 156, 126, 32, 163, 253, 31, 65,
@@ -730,7 +731,7 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 
 
 
-uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf, uint8_t *ROM_NO)
+uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf) //, uint8_t *ROM_NO
 {
 	int id_bit; // 
 	int cmp_id_bit; // the complement of the id_bit. This bit is AND of the complement of all of the id_bit_number
@@ -750,7 +751,7 @@ uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf, uint8_t *ROM_NO)
 	
 	crc8 = 0;
 	
-	printf("address memory ROM_NO = %p\n", ROM_NO);
+	//printf("address memory ROM_NO = %p\n", ROM_NO);
 	printf("*ld value = %d\n", *ld);
 	printf("*lfd value = %d\n", *lfd);
 	printf("*ldf value = %d\n", *ldf);

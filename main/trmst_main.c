@@ -68,7 +68,7 @@ xTaskHandle xRead_Temp_Handle; // identification Read Temp task
 extern uint8_t short_detected; //short detected on 1-wire net
 extern uint8_t crc8;
 extern uint8_t crc_tbl[];
-
+extern uint8_t ROM_NO[8];
 
 
 
@@ -153,7 +153,7 @@ static void vReadTemp(void* arg)
 	static uint8_t LastFamilyDiscrepancy = 0; 
 	static uint8_t LastDeviceFlag = 0;
 	
-	uint8_t *pROM_NO[4];
+	uint8_t *pROM_NO[3]; // 4 address = pROM_NO[0], pROM_NO[1], pROM_NO[2], pROM_NO[3].
 	uint8_t i = 0;
 	int j;
 	int count = 0;
@@ -167,21 +167,22 @@ static void vReadTemp(void* arg)
 			// find address ALL devices
 			printf("\nFIND ALL ******** \n");
 			do{
-				printf(" i = %d\n", i);
+				printf("i = %d\n", i);
 				pROM_NO[i] = (uint8_t*) malloc(8); //memory for address
 				printf("address memory pROM_NO = %p\n", pROM_NO[i]);
 				printf("LastDiscrepancy value = %d\n", LastDiscrepancy);
 				printf("LastFamilyDiscrepancy value = %d\n", LastFamilyDiscrepancy);
 				printf("LastDeviceFlag value = %d\n", LastDeviceFlag);
-				rslt = OWSearch(&LastDiscrepancy, &LastFamilyDiscrepancy, &LastDeviceFlag, pROM_NO[i]);
+				rslt = OWSearch(&LastDiscrepancy, &LastFamilyDiscrepancy, &LastDeviceFlag); //pROM_NO[i]
 				if(rslt)
 				{
 					count++;
 					for(j = 7; j >= 0; j--)
 					{
+						*(pROM_NO[i] + j) = ROM_NO[j];
 						printf("%02X", *(pROM_NO[i] + j));
 					}
-					printf("\n count = %d\n", count);
+					printf("\nSensor# %d\n", i + 1);
 				}
 				else{
 					printf("1-wire device end find\n");
@@ -190,8 +191,8 @@ static void vReadTemp(void* arg)
 				i++;
 				vTaskDelay(1000 / portTICK_RATE_MS);
 			}
-			while(rslt);			//i <= 4 &&
-			printf(" wc i = %d\n", i);
+			while(i <= 3 && rslt); // maximum 4 address
+			printf("1-wire device end find\n");
 		}
 		else
 			printf("1-wire device not detected\n");
