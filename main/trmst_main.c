@@ -51,6 +51,7 @@
 
 
 #define ReadROM 0x33	
+#define ReadScratchpad 0xBE
 #define SkipROM 0xCC
 #define MatchROM 0x55
 #define ConvertT 0x44
@@ -155,8 +156,14 @@ static void vReadTemp(void* arg)
 	
 	uint8_t *pROM_NO[3]; // 4 address = pROM_NO[0], pROM_NO[1], pROM_NO[2], pROM_NO[3].
 	uint8_t i = 0;
-	int j;
-	int count = 0;
+	int j, k, n, l;
+	uint8_t count = 0;
+	
+	uint8_t get[9]; //get scratch pad
+	//uint8_t temp_lsb, temp_msb;
+	
+	
+
 	vTaskDelay(3000 / portTICK_RATE_MS);
 	if(DS2482_detect())
 	{
@@ -187,6 +194,7 @@ static void vReadTemp(void* arg)
 				else{
 					printf("1-wire device end find\n");
 					free(pROM_NO[i]);
+					printf("counter = %d\n", count);
 				}
 				i++;
 				vTaskDelay(1000 / portTICK_RATE_MS);
@@ -202,9 +210,64 @@ static void vReadTemp(void* arg)
 	
 	while(1)
 	{
+		if(DS2482_detect())
+		{
+			if(OWReset())
+			{
+				OWWriteByte(SkipROM); //0xCC
+				printf("SkipROM\n");
+				OWWriteByte(ConvertT); //0x44
+				printf("ConvertT\n");
+			}
+			else
+				printf("1-wire device not detected(1)\n");
+			vTaskDelay(1000 / portTICK_RATE_MS);
 		
 		
-		vTaskDelay(1000 / portTICK_RATE_MS);
+			
+			for(l = 0; l < count; l++)
+			{
+				crc8 = 0;
+				if(DS2482_detect())
+				{
+					if(OWReset())
+					{
+						OWWriteByte(MatchROM); //0x55
+						printf("MatchROM\n");
+						for(k = 0; k <= 7; k++)
+						{
+							printf("send byte %X\n", *(pROM_NO[l] + k));
+							OWWriteByte(*(pROM_NO[l] + k));
+						}
+						printf("Read Scratchpad\n");
+						OWWriteByte(ReadScratchpad); //0xBE
+						for (n=0; n<9; n++)
+						{
+							get[n] = OWReadByte();
+							printf("get[%d] = %X\n", n, get[n]);
+							
+							//get[8] не надо проверять crc
+							if(n < 8)
+							{
+								calc_crc8(get[n]); // accumulate the CRC
+								printf("crc8 = %X\n", crc8);
+							}
+							else if(get[8] == crc8)
+								printf("crc = OK\n");
+							else
+								printf("crc = NOK\n");
+						}
+					}
+					else
+						printf("1-wire device not detected(2)\n");
+				}
+				
+			
+			}
+		}
+		//printf("0 byte = %X\n", *(pROM_NO[0] + 0));
+		//printf("7 byte = %X\n", *(pROM_NO[0] + 7));
+		vTaskDelay(10000 / portTICK_RATE_MS);
 	}
 	vTaskDelete(NULL);
 }
