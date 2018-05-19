@@ -116,7 +116,7 @@ uint8_t DS2482_reset(void)
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
-			printf("[DS2482_reset()] - status = %d \n", status);
+			//printf("[DS2482_reset()] - status = %d \n", status);
 			/* check for failure due to incorrect read back of status */
 			return ((status & 0xF7) == 0x10); //return 1
 		case ESP_ERR_INVALID_ARG:
@@ -153,7 +153,7 @@ uint8_t DS2482_write_config(uint8_t config)
 	tmp = config;
 	reg_config = config | (~tmp << 4);//is the one`s complement of the lower nibble
 	tmp = 0;
-	printf("reg_config = %d \n", reg_config);
+	//printf("reg_config = %d \n", reg_config);
 	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
 	i2c_master_start(cmd);  //S
 	i2c_master_write_byte(cmd, DS2482_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN); //AD,0  - [A]
@@ -191,12 +191,12 @@ uint8_t DS2482_write_config(uint8_t config)
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
-			printf("[DS2482_write_config()] - read_config = %d \n", read_config);
+			//printf("[DS2482_write_config()] - read_config = %d \n", read_config);
 			tmp = getbits(reg_config, 3, 4);
 			if(tmp != read_config)
 			{
 				//handle error
-				printf("[DS2482_write_config()] - tmp = %d \n", tmp);
+				//printf("[DS2482_write_config()] - tmp = %d \n", tmp);
 				DS2482_reset();
 				return 0;
 			}
@@ -527,7 +527,7 @@ void OWWriteByte(uint8_t sendbyte)
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
-			printf("[OWWriteByte()] - *st = %d \n", *st);
+			//printf("[OWWriteByte()] - *st = %d \n", *st);
 			break;
 		case ESP_ERR_INVALID_ARG:
 			printf("[OWWriteByte()] - Parameter error (2) \n");
@@ -606,7 +606,7 @@ uint8_t OWReadByte(void)
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
-			printf("[OWReadByte()] - data = %d \n", data);
+			//printf("[OWReadByte()] - data = %d \n", data);
 			break;
 		case ESP_ERR_INVALID_ARG:
 			printf("[OWReadByte()] - Parameter error (2) \n");
@@ -761,7 +761,7 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
-			printf("[DS2482_search_triplet()] - CMD_1WT = OK \n");
+			//printf("[DS2482_search_triplet()] - CMD_1WT = OK \n");
 			break;
 		case ESP_ERR_INVALID_ARG:
 			printf("[DS2482_search_triplet()] - Parameter error (1) \n");
@@ -788,15 +788,17 @@ uint8_t DS2482_search_triplet(uint8_t search_direction)
 	i2c_cmd_link_delete(cmd);
 	switch(ret){
 		case ESP_OK:
-			printf("[DS2482_search_triplet()] - *st = %d \n", *st);
+			//printf("[DS2482_search_triplet()] - *st = %d \n", *st);
 			break;
 		case ESP_ERR_INVALID_ARG:
 			printf("[DS2482_search_triplet()] - Parameter error (2) \n");
+			break;
 		case ESP_FAIL:
 			printf("[DS2482_search_triplet()] - Sending command error, slave doesn`t ACK the transfer \n");
+			break;
 		case ESP_ERR_INVALID_STATE:
 			printf("[DS2482_search_triplet()] - i2c driver not installed or not in master mode \n");
-		case ESP_ERR_TIMEOUT:
+			break;
 			printf("[DS2482_search_triplet()] - Operation timeout because the bus is busy \n");
 		default:
 			printf("[DS2482_search_triplet()] - default block");
@@ -842,9 +844,9 @@ uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf) //, uint8_t *ROM_NO
 	crc8 = 0;
 	
 	//printf("address memory ROM_NO = %p\n", ROM_NO);
-	printf("*ld value = %d\n", *ld);
-	printf("*lfd value = %d\n", *lfd);
-	printf("*ldf value = %d\n", *ldf);
+	//printf("*ld value = %d\n", *ld);
+	//printf("*lfd value = %d\n", *lfd);
+	//printf("*ldf value = %d\n", *ldf);
 	
 	// if the last call was not the last one 
 	if (!*ldf)
@@ -859,7 +861,7 @@ uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf) //, uint8_t *ROM_NO
 			return 0;
 			
 		}
-		
+		vTaskDelay(250 / portTICK_RATE_MS);
 		// issue the search command
 		// выдать команду поиска
 		OWWriteByte(SearchROM); // 0xF0
@@ -902,7 +904,7 @@ uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf) //, uint8_t *ROM_NO
 				if((!id_bit) && (!cmp_id_bit) && (search_direction == 0))
 				{
 					last_zero = id_bit_number;
-					printf("id_bit_number = %d\n", id_bit_number);
+					//printf("id_bit_number = %d\n", id_bit_number);
 					
 					// check for last discrepancy in family
 					if(last_zero < 9)
@@ -938,7 +940,7 @@ uint8_t OWSearch(uint8_t *ld, uint8_t *lfd, uint8_t *ldf) //, uint8_t *ROM_NO
 		{
 			// search successful so set LastDiscrepancy, LastDeviceFlag
 			// search_result
-			printf("last_zero = %d\n", last_zero);
+			//printf("last_zero = %d\n", last_zero);
 			*ld = last_zero;
 			
 			//check for last device

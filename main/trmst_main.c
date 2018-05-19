@@ -47,7 +47,7 @@
 #define tag "SSD1306"
 
 
-#define ssd1306_ADDR                       0x3C             /*!< oled display slave address, you can set any 7bit value */
+#define ssd1306_ADDR 0x3C             /*!< oled display slave address, you can set any 7bit value */
 
 
 #define ReadROM 0x33	
@@ -55,6 +55,8 @@
 #define SkipROM 0xCC
 #define MatchROM 0x55
 #define ConvertT 0x44
+#define WriteScratchpad 0x4E
+
 
 
 
@@ -155,35 +157,40 @@ static void vReadTemp(void* arg)
 	static uint8_t LastDeviceFlag = 0;
 	
 	uint8_t *pROM_NO[3]; // 4 address = pROM_NO[0], pROM_NO[1], pROM_NO[2], pROM_NO[3].
+	
 	uint8_t i = 0;
-	int j, k, n, l;
-	uint8_t count = 0;
+	int j;
+	int k;
+	int n;
+	int l;
+	
+	uint8_t sensors = 0;
 	
 	uint8_t get[9]; //get scratch pad
 	//uint8_t temp_lsb, temp_msb;
 	
 	
 
-	vTaskDelay(3000 / portTICK_RATE_MS);
+	vTaskDelay(1000 / portTICK_RATE_MS);
 	if(DS2482_detect())
 	{
 		/*ds2482 i2c/1-wire bridge detected*/
-		if(OWReset())
+		if(OWReset() && !short_detected)
 		{
 			/*1-wire device detected*/
 			// find address ALL devices
 			printf("\nFIND ALL ******** \n");
 			do{
-				printf("i = %d\n", i);
+				//printf("i = %d\n", i);
 				pROM_NO[i] = (uint8_t*) malloc(8); //memory for address
-				printf("address memory pROM_NO = %p\n", pROM_NO[i]);
-				printf("LastDiscrepancy value = %d\n", LastDiscrepancy);
-				printf("LastFamilyDiscrepancy value = %d\n", LastFamilyDiscrepancy);
-				printf("LastDeviceFlag value = %d\n", LastDeviceFlag);
+				//printf("address memory pROM_NO = %p\n", pROM_NO[i]);
+				//printf("LastDiscrepancy value = %d\n", LastDiscrepancy);
+				//printf("LastFamilyDiscrepancy value = %d\n", LastFamilyDiscrepancy);
+				//printf("LastDeviceFlag value = %d\n", LastDeviceFlag);
 				rslt = OWSearch(&LastDiscrepancy, &LastFamilyDiscrepancy, &LastDeviceFlag); //pROM_NO[i]
 				if(rslt)
 				{
-					count++;
+					sensors++;
 					for(j = 7; j >= 0; j--)
 					{
 						*(pROM_NO[i] + j) = ROM_NO[j];
@@ -194,80 +201,90 @@ static void vReadTemp(void* arg)
 				else{
 					printf("1-wire device end find\n");
 					free(pROM_NO[i]);
-					printf("counter = %d\n", count);
+					printf("sensors = %d\n", sensors);
 				}
 				i++;
-				vTaskDelay(1000 / portTICK_RATE_MS);
+				//vTaskDelay(250 / portTICK_RATE_MS);
 			}
 			while(i <= 3 && rslt); // maximum 4 address
 			printf("1-wire device end find\n");
 		}
 		else
-			printf("1-wire device not detected\n");
+			printf("1-wire device not detected (1) or short_detected = %d\n", short_detected);
+		
+		if(OWReset() && !short_detected){
+			vTaskDelay(250 / portTICK_RATE_MS);
+			OWWriteByte(SkipROM); //0xCC
+			printf("SkipROM\n");
+			OWWriteByte(WriteScratchpad); //0x4E
+			printf("WriteScratchpad\n");
+			OWWriteByte(0x4B); //TH
+			printf("TH = 0x4B\n");
+			OWWriteByte(0x46); //TL
+			printf("TL = 0x46\n");
+			OWWriteByte(0x7F); //Config register
+			printf("Config = 0x7F - 12 bit\n");
+		}
+		else
+			printf("1-wire device not detected (2) or short_detected = %d\n", short_detected);
+		
 	}
 	else
 		printf("ds2482 i2c/1-wire bridge not detected\n");
 	
+	
 	while(1)
 	{
-		if(DS2482_detect())
+		printf("**********************Cycle**********************************\n");
+		if(OWReset() && !short_detected && sensors > 0)
 		{
-			if(OWReset())
-			{
-				OWWriteByte(SkipROM); //0xCC
-				printf("SkipROM\n");
-				OWWriteByte(ConvertT); //0x44
-				printf("ConvertT\n");
-			}
-			else
-				printf("1-wire device not detected(1)\n");
-			vTaskDelay(1000 / portTICK_RATE_MS);
-		
-		
+			vTaskDelay(250 / portTICK_RATE_MS);
+			OWWriteByte(SkipROM); //0xCC - пропуск проверки адресов
+			printf("SkipROM\n");
+			OWWriteByte(ConvertT); //0x44 - все датчики измеряют свою температуру
+			printf("ConvertT\n");
 			
-			for(l = 0; l < count; l++)
+			
+			for(l = 0; l < sensors; l++)
 			{
 				crc8 = 0;
-				if(DS2482_detect())
+				if(OWReset() && !short_detected)
 				{
-					if(OWReset())
+					vTaskDelay(250 / portTICK_RATE_MS);
+					OWWriteByte(MatchROM); //0x55
+					printf("MatchROM\n");
+					for(k = 0; k <= 7; k++)
 					{
-						OWWriteByte(MatchROM); //0x55
-						printf("MatchROM\n");
-						for(k = 0; k <= 7; k++)
+						printf("send byte %X\n", *(pROM_NO[l] + k));
+						OWWriteByte(*(pROM_NO[l] + k));
+					}
+					printf("Read Scratchpad\n");
+					OWWriteByte(ReadScratchpad); //0xBE
+					for (n=0; n<9; n++)
+					{
+						get[n] = OWReadByte();
+						printf("get[%d] = %X\n", n, get[n]);
+								
+						//get[8] не надо проверять crc
+						if(n < 8)
 						{
-							printf("send byte %X\n", *(pROM_NO[l] + k));
-							OWWriteByte(*(pROM_NO[l] + k));
+							calc_crc8(get[n]); // accumulate the CRC
+							printf("crc8 = %X\n", crc8);
 						}
-						printf("Read Scratchpad\n");
-						OWWriteByte(ReadScratchpad); //0xBE
-						for (n=0; n<9; n++)
+						else if(get[8] == crc8)
+							printf("crc = OK\n");
+						else
 						{
-							get[n] = OWReadByte();
-							printf("get[%d] = %X\n", n, get[n]);
-							
-							//get[8] не надо проверять crc
-							if(n < 8)
-							{
-								calc_crc8(get[n]); // accumulate the CRC
-								printf("crc8 = %X\n", crc8);
-							}
-							else if(get[8] == crc8)
-								printf("crc = OK\n");
-							else
-								printf("crc = NOK\n");
+							printf("crc = NOK\n");
 						}
 					}
-					else
-						printf("1-wire device not detected(2)\n");
 				}
-				
-			
+				else
+					printf("1-wire device not detected(2) or short_detected = %d\n", short_detected);
 			}
 		}
-		//printf("0 byte = %X\n", *(pROM_NO[0] + 0));
-		//printf("7 byte = %X\n", *(pROM_NO[0] + 7));
-		vTaskDelay(10000 / portTICK_RATE_MS);
+		else
+			printf("1-wire device not detected(1) or sensors = 0 or short_detected = %d\n", short_detected);
 	}
 	vTaskDelete(NULL);
 }
