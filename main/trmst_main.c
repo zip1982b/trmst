@@ -167,7 +167,8 @@ static void vReadTemp(void* arg)
 	uint8_t sensors = 0;
 	
 	uint8_t get[9]; //get scratch pad
-	//uint8_t temp_lsb, temp_msb;
+	int temp;
+	float temperatura;
 	
 	
 
@@ -213,7 +214,7 @@ static void vReadTemp(void* arg)
 			printf("1-wire device not detected (1) or short_detected = %d\n", short_detected);
 		
 		if(OWReset() && !short_detected){
-			vTaskDelay(250 / portTICK_RATE_MS);
+			vTaskDelay(100 / portTICK_RATE_MS);
 			OWWriteByte(SkipROM); //0xCC
 			printf("SkipROM\n");
 			OWWriteByte(WriteScratchpad); //0x4E
@@ -238,7 +239,7 @@ static void vReadTemp(void* arg)
 		printf("**********************Cycle**********************************\n");
 		if(OWReset() && !short_detected && sensors > 0)
 		{
-			vTaskDelay(250 / portTICK_RATE_MS);
+			vTaskDelay(100 / portTICK_RATE_MS);
 			OWWriteByte(SkipROM); //0xCC - пропуск проверки адресов
 			printf("SkipROM\n");
 			OWWriteByte(ConvertT); //0x44 - все датчики измеряют свою температуру
@@ -250,26 +251,27 @@ static void vReadTemp(void* arg)
 				crc8 = 0;
 				if(OWReset() && !short_detected)
 				{
-					vTaskDelay(250 / portTICK_RATE_MS);
-					OWWriteByte(MatchROM); //0x55
-					printf("MatchROM\n");
+					vTaskDelay(100 / portTICK_RATE_MS);
+					OWWriteByte(MatchROM); //0x55 - соответствие адреса
+					printf("send MatchROM command\n");
+					// send ROM address = 64 bit
 					for(k = 0; k <= 7; k++)
 					{
-						printf("send byte %X\n", *(pROM_NO[l] + k));
+						//printf(" %X ", *(pROM_NO[l] + k));
 						OWWriteByte(*(pROM_NO[l] + k));
 					}
-					printf("Read Scratchpad\n");
 					OWWriteByte(ReadScratchpad); //0xBE
+					printf("\n send ReadScratchpad command \n");
 					for (n=0; n<9; n++)
 					{
 						get[n] = OWReadByte();
-						printf("get[%d] = %X\n", n, get[n]);
+						//printf("get[%d] = %X\n", n, get[n]);
 								
 						//get[8] не надо проверять crc
 						if(n < 8)
 						{
 							calc_crc8(get[n]); // accumulate the CRC
-							printf("crc8 = %X\n", crc8);
+							//printf("crc8 = %X\n", crc8);
 						}
 						else if(get[8] == crc8)
 							printf("crc = OK\n");
@@ -278,6 +280,27 @@ static void vReadTemp(void* arg)
 							printf("crc = NOK\n");
 						}
 					}
+					printf("ScratchPAD data = %X %X %X %X %X %X %X %X %X\n", get[8], get[7], get[6], get[5], get[4], get[3], get[2], get[1], get[0]);
+					// расчёт температуры
+					//temp_msb = get[1]; 
+					//temp_lsb = get[0];
+					
+					// -
+					if(getbits(get[1], 7, 1))
+					{
+						temp = get[1] << 8 | get[0];
+						temp = (~temp) + 1;
+						temperatura = (temp * 0.0625) * (-1);
+						printf("temp = %f *C\n", temperatura);
+					}
+					// +
+					else 
+					{
+						temp = get[1] << 8 | get[0];
+						temperatura = temp * 0.0625;
+						printf("temp = %f *C\n", temperatura);
+					}
+						
 				}
 				else
 					printf("1-wire device not detected(2) or short_detected = %d\n", short_detected);
