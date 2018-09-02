@@ -13,12 +13,23 @@
 
 #define DS2482_ADDR			0x18		/* slave address for DS2482 bridge*/
 
+
+#define ReadROM 0x33	
+#define ReadScratchpad 0xBE
+#define SkipROM 0xCC
+#define MatchROM 0x55
+#define ConvertT 0x44
+#define WriteScratchpad 0x4E
+
+
 #define I2C_MASTER_SCL_IO          19               /*!< gpio number for I2C master clock */
 #define I2C_MASTER_SDA_IO          18               /*!< gpio number for I2C master data  */
 #define I2C_MASTER_NUM             I2C_NUM_1        /*!< I2C port number for master dev */
 #define I2C_MASTER_TX_BUF_DISABLE  0                /*!< I2C master do not need buffer */
 #define I2C_MASTER_RX_BUF_DISABLE  0                /*!< I2C master do not need buffer */
 #define I2C_MASTER_FREQ_HZ         100000           /*!< I2C master clock frequency */
+
+
 
 
 #define WRITE_BIT			I2C_MASTER_WRITE /* I2C Master write */

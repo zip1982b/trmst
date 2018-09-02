@@ -43,19 +43,12 @@
 
 
 
-
 #define tag "SSD1306"
 
 
 #define ssd1306_ADDR 0x3C             /*!< oled display slave address, you can set any 7bit value */
 
 
-#define ReadROM 0x33	
-#define ReadScratchpad 0xBE
-#define SkipROM 0xCC
-#define MatchROM 0x55
-#define ConvertT 0x44
-#define WriteScratchpad 0x4E
 
 
 
@@ -236,6 +229,7 @@ static void vReadTemp(void* arg)
 	
 	while(1)
 	{
+		vTaskDelay(5000 / portTICK_RATE_MS);
 		printf("**********************Cycle**********************************\n");
 		if(OWReset() && !short_detected && sensors > 0)
 		{
